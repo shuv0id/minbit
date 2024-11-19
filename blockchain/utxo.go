@@ -27,14 +27,14 @@ func (us *UTXOSet) Remove(txID string, outputIndex int, address string) {
 	}
 }
 
-func (us *UTXOSet) GetUTXOByAddress(address string) []UTXO {
-	var utxoList []UTXO
+func (us *UTXOSet) GetTotalUTXOsByAddress(address string) int {
+	var totalUTXOs int
 	for _, outputs := range us.UTXOs {
 		for _, utxo := range outputs {
 			if utxo.Address == address {
-				utxoList = append(utxoList, utxo)
+				totalUTXOs += utxo.Amount
 			}
 		}
 	}
-	return utxoList
+	return totalUTXOs
 }

@@ -4,9 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mr-tron/base58/base58"
+	"golang.org/x/crypto/ripemd160"
 )
 
 func (bc *Blockchain) AddBlock(tx Transaction) {
@@ -66,13 +70,24 @@ func (b *Block) validateHash() bool {
 func (b Block) calculateHash() string {
 	data := strconv.Itoa(b.Index) + b.TxData.String() + b.Timestamps + strconv.Itoa(b.Nonce) + b.PrevHash
 
-	h := sha256.New()
+	hash := sha256.Sum256([]byte(data))
 
-	h.Write([]byte(data))
-	hash := h.Sum(nil)
-	return hex.EncodeToString(hash)
+	return hex.EncodeToString(hash[:])
 }
 
 func (tx Transaction) String() string {
 	return fmt.Sprintf("%s %s %d %s", tx.Sender, tx.Recipent, tx.Amount, tx.Signature)
+}
+
+func PublickKeyToAddress(pubAddress string) (string, error) {
+	pubKeyBytes, err := base58.Decode(pubAddress)
+	if err != nil {
+		log.Fatal("Invalid public key")
+		return "", err
+	}
+	sha256Hash := sha256.Sum256([]byte(pubKeyBytes))
+
+	ripemdHash := ripemd160.New().Sum(sha256Hash[:])
+
+	return base58.Encode(ripemdHash), nil
 }
