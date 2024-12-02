@@ -3,11 +3,13 @@ package blockchain
 import (
 	"bufio"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	mrand "math/rand"
 	"strings"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -19,6 +21,7 @@ import (
 )
 
 func startNode(port int, secio bool, randseed int64) error {
+
 	var r io.Reader
 	if randseed == 0 {
 		r = rand.Reader
@@ -70,10 +73,78 @@ func handleStream(s network.Stream) {
 
 func readData(rw *bufio.ReadWriter) {
 	for {
-		// yet to be implemented
+		str, err := rw.ReadString('\n')
+		if err != nil {
+			log.Fatal(err)
+		}
+		if str != "" && str != "\n" {
+			b := Block{}
+
+			if err := json.Unmarshal([]byte(str), &b); err == nil {
+
+				if b.isValid() {
+					if _, exists := mempool.transactions[b.TxData.TxID]; !exists {
+						mempool.RemoveTransaction(b.TxData.TxID)
+					}
+					bc.Chain = append(bc.Chain, &b)
+				}
+			} else {
+				log.Fatal(err)
+			}
+
+			tx := Transaction{}
+			if err := json.Unmarshal([]byte(str), &tx); err == nil {
+
+				if tx.isValid() {
+					mempool.AddTransaction(&tx)
+					bytes, _ := json.Marshal(tx)
+					rw.WriteString(fmt.Sprintf("%s", string(bytes)))
+					rw.Flush()
+				}
+				continue
+
+			} else {
+				log.Fatal(err)
+			}
+
+		}
+
 	}
+
 }
 
 func writeData(rw *bufio.ReadWriter) {
-	// yet to be implemented
+	for {
+
+		tx := &Transaction{}
+
+		for _, t := range mempool.transactions {
+			tx = t
+			break
+		}
+
+		if tx == nil {
+			continue
+		}
+
+		block := &Block{
+			Index:      bc.Chain[len(bc.Chain)-1].Index + 1,
+			TxData:     *tx,
+			Timestamps: time.Now().String(),
+			PrevHash:   bc.Chain[len(bc.Chain)-1].Hash,
+		}
+
+		block.MineBlock()
+		bc.Chain = append(bc.Chain, block)
+
+		bytes, err := json.MarshalIndent(block, "", "  ")
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		rw.WriteString(fmt.Sprintf("%s", string(bytes)))
+		rw.Flush()
+
+		mempool.RemoveTransaction(tx.TxID)
+	}
 }

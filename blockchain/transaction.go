@@ -25,7 +25,7 @@ var us = &UTXOSet{
 	UTXOs: make(map[string]map[int]UTXO),
 }
 
-func (tx *Transaction) IsValid() bool {
+func (tx *Transaction) isValid() bool {
 	pbKeyAddr, _ := PublickKeyToAddress(tx.Sender)
 	if len(tx.Inputs) == 0 || len(tx.Outputs) == 0 || tx.Amount > us.GetTotalUTXOsByAddress(pbKeyAddr) {
 		return false
@@ -41,9 +41,6 @@ func (tx *Transaction) IsValid() bool {
 		log.Fatal("Invalid signature")
 	}
 
-	r := new(big.Int).SetBytes(sigBytes[:32])
-	s := new(big.Int).SetBytes(sigBytes[32:])
-
 	publicKey := ecdsa.PublicKey{
 		Curve: elliptic.P224(),
 		X:     new(big.Int).SetBytes(pubKeyBytes[:32]),
@@ -52,9 +49,10 @@ func (tx *Transaction) IsValid() bool {
 
 	hash := tx.Hash()
 
-	if !ecdsa.Verify(&publicKey, hash, r, s) {
+	if !ecdsa.VerifyASN1(&publicKey, hash, sigBytes[:]) {
 		return false
 	}
+
 	return true
 }
 
