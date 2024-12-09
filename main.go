@@ -1,9 +1,27 @@
 package main
 
 import (
-	"fmt"
+	"flag"
+	"github.com/shu8h0-null/minimal-btc/blockchain"
 )
 
 func main() {
-	fmt.Println("Hello Ningen! The project is still in progress!")
+	logger := blockchain.NewColorLogger()
+	port := flag.Int("p", 0, "Port on which the node will listen")
+	target := flag.String("t", "", "Multiaddr of the peer to connect to (leave empty to start without connecting)")
+	seed := flag.Int64("s", 0, "Seed for random peer ID")
+	flag.Parse()
+
+	if *port == 0 {
+		logger.Error("Please specify a valid port number for the node to listen on.")
+	}
+
+	logger.Info("Starting node...")
+
+	err := blockchain.StartNode(*port, false, *seed, *target)
+
+	if err != nil {
+		logger.Errorf("Unable to start node at %d: %s", port, err)
+	}
+
 }

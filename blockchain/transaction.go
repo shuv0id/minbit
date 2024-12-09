@@ -4,7 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
-	"log"
+	"fmt"
 	"math/big"
 	"strconv"
 
@@ -12,13 +12,13 @@ import (
 )
 
 type Transaction struct {
-	TxID      string
-	Sender    string
-	Recipent  string
-	Amount    int
-	Signature string
-	Inputs    []UTXO
-	Outputs   []UTXO
+	TxID      string `json:"trasaction_id"`
+	Sender    string `json:"sender"`
+	Recipent  string `json:"recipent"`
+	Amount    int    `json:"amount"`
+	Signature string `json:"signature"`
+	Inputs    []UTXO `json:"inputs"`
+	Outputs   []UTXO `json:"outputs"`
 }
 
 var us = &UTXOSet{
@@ -33,12 +33,12 @@ func (tx *Transaction) isValid() bool {
 
 	pubKeyBytes, err := base58.Decode(tx.Sender)
 	if err != nil {
-		log.Fatal("Invalid public key")
+		logger.Error("Invalid public key")
 		return false
 	}
 	sigBytes, err := base58.Decode(tx.Signature)
 	if err != nil {
-		log.Fatal("Invalid signature")
+		logger.Error("Invalid signature")
 	}
 
 	publicKey := ecdsa.PublicKey{
@@ -70,4 +70,8 @@ func (tx *Transaction) Hash() []byte {
 	hash := sha256.Sum256([]byte(txData))
 
 	return hash[:]
+}
+
+func (tx Transaction) String() string {
+	return fmt.Sprintf("%s %s %d %s", tx.Sender, tx.Recipent, tx.Amount, tx.Signature)
 }

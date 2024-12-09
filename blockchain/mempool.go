@@ -1,7 +1,6 @@
 package blockchain
 
 import (
-	"log"
 	"sync"
 )
 
@@ -23,19 +22,19 @@ func (m *Mempool) AddTransaction(tx *Transaction) {
 	defer m.mu.Unlock()
 
 	if _, exists := m.transactions[tx.TxID]; exists {
-		log.Println("Transaction already exists in mempool", tx.TxID)
+		logger.Info("Cannot add new transaction. Already exists in mempool", tx.TxID)
 	}
 
 	m.transactions[tx.TxID] = tx
-	log.Println("Transaction added to the mempool", tx.TxID)
+	logger.Info("Transaction added to the mempool", tx.TxID)
 }
 
 func (m *Mempool) RemoveTransaction(txID string) {
 	m.mu.Lock()
-	defer m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if _, exists := m.transactions[txID]; !exists {
-		log.Println("Transaction not found in mempool", txID)
+		logger.Info("Transaction not found in mempool", txID)
 	} else {
 		delete(m.transactions, txID)
 	}
