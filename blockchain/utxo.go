@@ -11,6 +11,10 @@ type UTXOSet struct {
 	UTXOs map[string]map[int]UTXO
 }
 
+var us = &UTXOSet{
+	UTXOs: make(map[string]map[int]UTXO),
+}
+
 func (us *UTXOSet) AddUTXO(txID string, outputIndex int, amount int, address string) {
 	if _, exists := us.UTXOs[txID]; !exists {
 		us.UTXOs[txID] = make(map[int]UTXO)

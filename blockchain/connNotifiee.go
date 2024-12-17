@@ -12,9 +12,9 @@ func (n *MyNotifiee) Listen(net network.Network, addr ma.Multiaddr) {}
 func (n *MyNotifiee) ListenClose(net network.Network, addr ma.Multiaddr) {}
 
 func (n *MyNotifiee) Connected(net network.Network, conn network.Conn) {
-	logger.Info("Connected to peer: %s\n", conn.RemotePeer())
+	logger.Infof("Connected to peer: %s\n", conn.RemotePeer())
 }
 
 func (n *MyNotifiee) Disconnected(net network.Network, conn network.Conn) {
-	logger.Info("Disconnected from peer: %s\n", conn.RemotePeer())
+	logger.Infof("Disconnected from peer: %s\n", conn.RemotePeer())
 }

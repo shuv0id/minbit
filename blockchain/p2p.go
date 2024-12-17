@@ -3,25 +3,36 @@ package blockchain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
-	ma "github.com/multiformats/go-multiaddr"
+	"github.com/multiformats/go-multiaddr"
 )
 
 var node host.Host
 
-var bootstrapNodes []host.Host
+const nodesAddrFile = "nodes.json"
 
-func StartNode(port int, secio bool, randseed int64, connectAddr string) error {
+type NodeIdentifier struct {
+	PeerID string `json:"peer_id"`
+	Addr   string `json:"address"`
+}
+
+func StartNode(port int, randseed int64, connectAddr string) error {
+	if port == 0 {
+		return errors.New("Invalid port!")
+	}
+
 	priv, err := GeneratePrivKeyForNode(randseed)
 	if err != nil {
 		return err
@@ -62,53 +73,29 @@ func StartNode(port int, secio bool, randseed int64, connectAddr string) error {
 	txSub, _ := txTopic.Subscribe()
 
 	blockReceiver := make(chan *Block, 1)
-
 	go bReader(bSub, blockReceiver)
 	go txReader(txSub)
 
 	node.Network().Notify(&MyNotifiee{})
 
-	hostAddr, _ := ma.NewMultiaddr(fmt.Sprintf("/p2p/%s", node.ID().String()))
-
-	addrs := node.Addrs()
-	var addr ma.Multiaddr
-
-	for _, a := range addrs {
-		if strings.HasPrefix(a.String(), "/ip4") {
-			addr = a
-			break
-		}
-	}
-
-	fullAddr := addr.Encapsulate(hostAddr)
+	fullAddr := node.Addrs()[0].String() + "/p2p/" + node.ID().String()
 	logger.Successf("Node started at address: %s\n", fullAddr)
 
+	connectToPeers(node, connectAddr)
+	writeNodeAddrToJSONFile(fullAddr, node.ID().String(), nodesAddrFile)
+	handleSyncRequests(node)
 	go MineBlocks(blockReceiver, bTopic)
 
-	if connectAddr != "" {
-		peerAddr, err := ma.NewMultiaddr(connectAddr)
-		if err != nil {
-			logger.Errorf("Invalid peer multiaddr: %s\n", connectAddr)
-		}
-
-		peerInfo, err := peer.AddrInfoFromP2pAddr(peerAddr)
-		if err != nil {
-			logger.Errorf("Failed to get AddrInfo: %v\n", err)
-		}
-
-		err = node.Connect(context.Background(), *peerInfo)
-		if err != nil {
-			logger.Errorf("Error connecting to %s : %v\n", peerInfo.ID, err)
-		}
-	}
-
+	// Signal handling for proper shutdown
 	done := make(chan struct{})
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGABRT, syscall.SIGTERM)
 
 	go func() {
-		sig := <-sigs
-		logger.Info("Received signal: ", sig)
+		logger.Info("Received signal: ", <-sigs)
+		if err := removeNodeInfoFromJSONFile(node.ID().String(), nodesAddrFile); err != nil {
+			logger.Error("Error removing the peer address from json file:", err)
+		}
 		close(done)
 	}()
 
@@ -135,8 +122,8 @@ func bTopicValidator(ctx context.Context, pid peer.ID, msg *pubsub.Message) bool
 	}
 
 	b := &Block{}
-	err := json.Unmarshal(msg.Data, b)
-	if err != nil {
+
+	if err := json.Unmarshal(msg.Data, b); err != nil {
 		logger.Error("Invalid json format")
 		return false
 	}
@@ -151,8 +138,7 @@ func txTopicValidator(ctx context.Context, pid peer.ID, msg *pubsub.Message) boo
 	}
 
 	tx := &Transaction{}
-	err := json.Unmarshal(msg.Data, tx)
-	if err != nil {
+	if err := json.Unmarshal(msg.Data, tx); err != nil {
 		logger.Error("Invalid json format")
 		return false
 	}
@@ -212,4 +198,47 @@ func txReader(txSub *pubsub.Subscription) {
 		logger.Infof("Received transaction with id: %s from %s\n", tx.TxID, txMsg.GetFrom())
 		mempool.AddTransaction(tx)
 	}
+}
+
+// connectToPeers establishes a connection between the host and a peer node.
+// If `connectAddr` is provided, it directly connects to that address.
+// Otherwise, it reads peer addresses from `nodesAddrFile` and randomly selects one to establish the connection.
+// Returns an error on failure
+func connectToPeers(h host.Host, connectAddr string) {
+	if connectAddr != "" {
+		fullAddr, _ := multiaddr.NewMultiaddr(connectAddr)
+		peerInfo, _ := peer.AddrInfoFromP2pAddr(fullAddr)
+		err := h.Connect(context.Background(), *peerInfo)
+		if err != nil {
+			logger.Errorf("Failed to connect to peer %s: %v", connectAddr, err)
+		} else {
+			syncBlocksFromPeer(node, peerInfo.ID)
+		}
+		return
+	}
+	file, err := os.OpenFile(nodesAddrFile, os.O_CREATE|os.O_RDONLY, 0666)
+	if err != nil {
+		logger.Error("Error opening json file: ", err)
+		return
+	}
+
+	var n []NodeIdentifier
+	decoder := json.NewDecoder(file)
+	decoder.Decode(&n)
+	if len(n) == 0 {
+		return
+	}
+
+	rng := rand.New(rand.NewSource(int64(time.Now().Nanosecond())))
+	randomPeer := n[rng.Intn(len(n))]
+	fullAddr, _ := multiaddr.NewMultiaddr(randomPeer.Addr)
+	peerInfo, _ := peer.AddrInfoFromP2pAddr(fullAddr)
+	err = h.Connect(context.Background(), *peerInfo)
+	if err != nil {
+		logger.Errorf("Error connecting to %s : %v\n", peerInfo.ID, err)
+	} else {
+		syncBlocksFromPeer(node, peerInfo.ID)
+	}
+
+	return
 }

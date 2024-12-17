@@ -79,15 +79,14 @@ func MineBlocks(bReceiver <-chan *Block, publisherTopic *pubsub.Topic) {
 		spew.Dump(b)
 		fmt.Println(Reset)
 
+		logger.Info("Mining for new block...")
 	NonceFinder:
 		for i := 0; ; i++ {
 			b.Nonce = i
 			hash := b.calculateHash()
 			prefix := strings.Repeat("0", 2)
 
-			if !strings.HasPrefix(hash, prefix) {
-				fmt.Printf("Doing work to mine next block for TransactionID: %s\n", b.TxData.TxID)
-			} else {
+			if strings.HasPrefix(hash, prefix) {
 				b.Hash = hash
 				logger.Successf("Hell yeah!! Block is mined: %s \n", hash)
 
@@ -177,4 +176,12 @@ func (b *Block) calculateHash() string {
 	hash := sha256.Sum256([]byte(data))
 
 	return hex.EncodeToString(hash[:])
+}
+
+func (bc *Blockchain) GetLatestBlockHeight() int {
+	if len(bc.Chain) == 0 {
+		return -1
+	}
+	blockHeight := bc.Chain[len(bc.Chain)-1].Height
+	return blockHeight
 }

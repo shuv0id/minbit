@@ -12,13 +12,9 @@ func main() {
 	seed := flag.Int64("s", 0, "Seed for random peer ID")
 	flag.Parse()
 
-	if *port == 0 {
-		logger.Error("Please specify a valid port number for the node to listen on.")
-	}
-
 	logger.Info("Starting node...")
 
-	err := blockchain.StartNode(*port, false, *seed, *target)
+	err := blockchain.StartNode(*port, *seed, *target)
 
 	if err != nil {
 		logger.Errorf("Unable to start node at %d: %s", port, err)

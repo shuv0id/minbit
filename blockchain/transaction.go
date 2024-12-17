@@ -21,10 +21,6 @@ type Transaction struct {
 	Outputs   []UTXO `json:"outputs"`
 }
 
-var us = &UTXOSet{
-	UTXOs: make(map[string]map[int]UTXO),
-}
-
 func (tx *Transaction) isValid() bool {
 	pbKeyAddr, _ := PublickKeyToAddress(tx.Sender)
 	if len(tx.Inputs) == 0 || len(tx.Outputs) == 0 || tx.Amount > us.GetTotalUTXOsByAddress(pbKeyAddr) {
@@ -74,4 +70,14 @@ func (tx *Transaction) Hash() []byte {
 
 func (tx Transaction) String() string {
 	return fmt.Sprintf("%s %s %d %s", tx.Sender, tx.Recipent, tx.Amount, tx.Signature)
+}
+
+func GetUserTxHistory(walletAddress string) []Transaction {
+	var txHistory []Transaction
+	for _, b := range bc.Chain {
+		if b.TxData.Sender == walletAddress || b.TxData.Recipent == walletAddress {
+			txHistory = append(txHistory, b.TxData)
+		}
+	}
+	return txHistory
 }
