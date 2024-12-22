@@ -3,7 +3,9 @@ package blockchain
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -12,33 +14,53 @@ import (
 )
 
 type Transaction struct {
-	TxID      string `json:"trasaction_id"`
-	Sender    string `json:"sender"`
-	Recipent  string `json:"recipent"`
-	Amount    int    `json:"amount"`
-	Signature string `json:"signature"`
-	Inputs    []UTXO `json:"inputs"`
-	Outputs   []UTXO `json:"outputs"`
+	TxID      string   `json:"trasaction_id"`
+	Sender    string   `json:"sender"`
+	Recipent  string   `json:"recipent"`
+	Amount    int      `json:"amount"`
+	Signature string   `json:"signature"`
+	Inputs    []Input  `json:"inputs"`
+	Outputs   []Output `json:"outputs"`
+}
+
+func (tx *Transaction) Sign(privateKey *ecdsa.PrivateKey) error {
+	hash := tx.Hash()
+	tx.TxID = hex.EncodeToString(hash)
+
+	signature, err := ecdsa.SignASN1(rand.Reader, privateKey, hash)
+	if err != nil {
+		logger.Error("Error generating signature: ", err)
+		return err
+	}
+
+	tx.Signature = hex.EncodeToString(signature)
+
+	return nil
 }
 
 func (tx *Transaction) isValid() bool {
-	pbKeyAddr, _ := PublickKeyToAddress(tx.Sender)
-	if len(tx.Inputs) == 0 || len(tx.Outputs) == 0 || tx.Amount > us.GetTotalUTXOsByAddress(pbKeyAddr) {
+	pbuKeyAddr, _ := PublicKeyHexToAddress(tx.Sender)
+	if len(tx.Inputs) == 0 || len(tx.Outputs) == 0 || tx.Amount > us.GetTotalUTXOsByAddress(pbuKeyAddr) {
 		return false
 	}
 
-	pubKeyBytes, err := base58.Decode(tx.Sender)
-	if err != nil {
-		logger.Error("Invalid public key")
-		return false
-	}
 	sigBytes, err := base58.Decode(tx.Signature)
 	if err != nil {
 		logger.Error("Invalid signature")
 	}
 
+	pubKeyBytes, err := hex.DecodeString(pbuKeyAddr)
+	if err != nil {
+		logger.Error("Invalid public key")
+		return false
+	}
+	if len(pubKeyBytes) != 64 {
+		logger.Info("Invalid publick key length")
+		return false
+	}
+
 	publicKey := ecdsa.PublicKey{
-		Curve: elliptic.P224(),
+		Curve: elliptic.P256(),
 		X:     new(big.Int).SetBytes(pubKeyBytes[:32]),
 		Y:     new(big.Int).SetBytes(pubKeyBytes[32:]),
 	}
@@ -56,11 +78,11 @@ func (tx *Transaction) Hash() []byte {
 	txData := tx.TxID + tx.Sender + tx.Recipent + strconv.Itoa(tx.Amount)
 
 	for _, input := range tx.Inputs {
-		txData += input.TxID + strconv.Itoa(input.Amount) + strconv.Itoa(input.OutputIndex) + input.Address
+		txData += strconv.Itoa(input.OutputIndex) + input.PrevTxID
 	}
 
 	for _, output := range tx.Outputs {
-		txData += output.TxID + strconv.Itoa(output.Amount) + strconv.Itoa(output.OutputIndex) + output.Address
+		txData += strconv.Itoa(output.Value) + strconv.Itoa(output.OutputIndex) + output.Address
 	}
 
 	hash := sha256.Sum256([]byte(txData))

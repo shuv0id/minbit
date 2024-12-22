@@ -1,25 +1,30 @@
 package blockchain
 
-type UTXO struct {
-	TxID        string
+type Input struct {
+	PrevTxID    string
 	OutputIndex int
-	Amount      int
+	Value       int
+}
+
+type Output struct {
+	OutputIndex int
+	Value       int
 	Address     string
 }
 
 type UTXOSet struct {
-	UTXOs map[string]map[int]UTXO
+	UTXOs map[string]map[int]Output // map of transaction id mapped to output indexes mapped to Output
 }
 
 var us = &UTXOSet{
-	UTXOs: make(map[string]map[int]UTXO),
+	UTXOs: make(map[string]map[int]Output),
 }
 
 func (us *UTXOSet) AddUTXO(txID string, outputIndex int, amount int, address string) {
 	if _, exists := us.UTXOs[txID]; !exists {
-		us.UTXOs[txID] = make(map[int]UTXO)
+		us.UTXOs[txID] = make(map[int]Output)
 	}
-	us.UTXOs[txID][outputIndex] = UTXO{TxID: txID, OutputIndex: outputIndex, Amount: amount, Address: address}
+	us.UTXOs[txID][outputIndex] = Output{OutputIndex: outputIndex, Value: amount, Address: address}
 }
 
 func (us *UTXOSet) Remove(txID string, outputIndex int, address string) {
@@ -33,12 +38,42 @@ func (us *UTXOSet) Remove(txID string, outputIndex int, address string) {
 
 func (us *UTXOSet) GetTotalUTXOsByAddress(address string) int {
 	var totalUTXOs int
-	for _, outputs := range us.UTXOs {
-		for _, utxo := range outputs {
+	for _, transactions := range us.UTXOs {
+		for _, utxo := range transactions {
 			if utxo.Address == address {
-				totalUTXOs += utxo.Amount
+				totalUTXOs += utxo.Value
 			}
 		}
 	}
 	return totalUTXOs
+}
+
+func GetUTXOsByAddress(address string) []Output {
+	var utxos []Output
+	for _, transactions := range us.UTXOs {
+		for _, utxo := range transactions {
+			if utxo.Address == address {
+				utxos = append(utxos, utxo)
+			}
+		}
+	}
+	return utxos
+}
+
+func GetInputsForTxByAddress(address string) []Input {
+	var inputs []Input
+	for txID, transactions := range us.UTXOs {
+		for outputIndex, utxo := range transactions {
+			if utxo.Address == address {
+				input := Input{
+					PrevTxID:    txID,
+					OutputIndex: outputIndex,
+					Value:       utxo.Value,
+				}
+				inputs = append(inputs, input)
+			}
+		}
+	}
+	return inputs
+
 }

@@ -3,6 +3,7 @@ package blockchain
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,18 +16,22 @@ import (
 	"golang.org/x/crypto/ripemd160"
 )
 
-// PublickKeyToAddress convert the base58-encoded public key pubkey to address
-func PublickKeyToAddress(pubKey string) (string, error) {
-	pubKeyBytes, err := base58.Decode(pubKey)
+// PublicKeyHexToAddress convert the base58-encoded public key pubkey to hexadecimal string of public key
+func PublicKeyHexToAddress(pubKeyHex string) (string, error) {
+	publicKey, err := hex.DecodeString(pubKeyHex)
 	if err != nil {
-		logger.Error("Invalid public key")
 		return "", err
 	}
-	sha256Hash := sha256.Sum256(pubKeyBytes[:])
-
+	sha256Hash := sha256.Sum256([]byte(publicKey))
 	ripemdHash := ripemd160.New().Sum(sha256Hash[:])
 
-	return base58.Encode(ripemdHash), nil
+	firstHash := sha256.Sum256(ripemdHash)
+	secondHash := sha256.Sum256(firstHash[:])
+
+	checksum := secondHash[:4]
+
+	addressBytes := append(ripemdHash, checksum...)
+	return base58.Encode(addressBytes), nil
 }
 
 func GeneratePrivKeyForNode(randseed int64) (crypto.PrivKey, error) {
