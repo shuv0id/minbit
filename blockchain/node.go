@@ -38,6 +38,9 @@ func StartNode(port int, randseed int64, connectAddr string) error {
 		return err
 	}
 
+	// associate a wallet with the node
+	wall = *GenerateWallet()
+
 	opts := []libp2p.Option{
 		libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", port)),
 		libp2p.Identity(priv),
@@ -73,7 +76,7 @@ func StartNode(port int, randseed int64, connectAddr string) error {
 	txSub, _ := txTopic.Subscribe()
 
 	blockReceiver := make(chan *Block, 1)
-	go bReader(bSub, blockReceiver)
+	go blockReader(bSub, blockReceiver)
 	go txReader(txSub)
 
 	node.Network().Notify(&MyNotifiee{})
@@ -150,7 +153,7 @@ func txTopicValidator(ctx context.Context, pid peer.ID, msg *pubsub.Message) boo
 	return true
 }
 
-func bReader(bSub *pubsub.Subscription, bReceiver chan<- *Block) {
+func blockReader(bSub *pubsub.Subscription, bReceiver chan<- *Block) {
 	for {
 		bMsg, err := bSub.Next(context.Background())
 		if err != nil {

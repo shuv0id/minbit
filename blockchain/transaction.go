@@ -6,21 +6,22 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 
 	"github.com/mr-tron/base58/base58"
 )
 
 type Transaction struct {
-	TxID      string   `json:"trasaction_id"`
-	Sender    string   `json:"sender"`
-	Recipent  string   `json:"recipent"`
-	Amount    int      `json:"amount"`
-	Signature string   `json:"signature"`
-	Inputs    []Input  `json:"inputs"`
-	Outputs   []Output `json:"outputs"`
+	TxID       string   `json:"transaction_id"`
+	Sender     string   `json:"sender"`
+	Recipent   string   `json:"recipent"`
+	Amount     int      `json:"amount"`
+	Signature  string   `json:"signature"`
+	Inputs     []Input  `json:"inputs"`
+	Outputs    []Output `json:"outputs"`
+	IsCoinbase bool     `json:"is_coinbase"`
 }
 
 func (tx *Transaction) Sign(privateKey *ecdsa.PrivateKey) error {
@@ -90,15 +91,43 @@ func (tx *Transaction) Hash() []byte {
 	return hash[:]
 }
 
-func (tx Transaction) String() string {
-	return fmt.Sprintf("%s %s %d %s", tx.Sender, tx.Recipent, tx.Amount, tx.Signature)
+func GenerateCoinbaseTx() Transaction {
+	coinbaseTx := Transaction{
+		Amount:     6,
+		Recipent:   wall.Address,
+		IsCoinbase: true,
+	}
+	coinbaseTx.TxID = hex.EncodeToString(coinbaseTx.Hash())
+	return coinbaseTx
+}
+
+func TransactionsToString(transactions []Transaction) string {
+	txStr := []string{}
+	for _, t := range transactions {
+		inputsStr := []string{}
+		for _, input := range t.Inputs {
+			inputsStr = append(inputsStr, input.PrevTxID+", "+strconv.Itoa(input.OutputIndex)+", "+strconv.Itoa(input.Value))
+		}
+
+		outputsStr := []string{}
+		for _, output := range t.Outputs {
+			outputsStr = append(outputsStr, strconv.Itoa(output.OutputIndex)+", "+strconv.Itoa(output.Value)+", "+output.Address)
+		}
+
+		txStr = append(txStr, strconv.FormatBool(t.IsCoinbase)+", "+strings.Join(inputsStr, ", ")+
+			", "+strings.Join(outputsStr, ", "))
+	}
+
+	return strings.Join(txStr, "\n")
 }
 
 func GetUserTxHistory(walletAddress string) []Transaction {
 	var txHistory []Transaction
 	for _, b := range bc.Chain {
-		if b.TxData.Sender == walletAddress || b.TxData.Recipent == walletAddress {
-			txHistory = append(txHistory, b.TxData)
+		for _, tx := range b.TxData {
+			if tx.Sender == walletAddress || tx.Recipent == walletAddress {
+				txHistory = append(txHistory, b.TxData[1])
+			}
 		}
 	}
 	return txHistory

@@ -16,12 +16,12 @@ import (
 )
 
 type Block struct {
-	Height     int         `json:"height"`
-	TxData     Transaction `json:"transaction_data"`
-	Timestamps string      `json:"timestamps"`
-	Nonce      int         `json:"nonce"`
-	Hash       string      `json:"hash"`
-	PrevHash   string      `json:"prev_hash"`
+	Height     int           `json:"height"`
+	TxData     []Transaction `json:"transaction_data"`
+	Timestamps string        `json:"timestamps"`
+	Nonce      int           `json:"nonce"`
+	Hash       string        `json:"hash"`
+	PrevHash   string        `json:"prev_hash"`
 }
 
 type Blockchain struct {
@@ -48,6 +48,7 @@ func NewBlockchain() *Blockchain {
 func NewBlock(tx Transaction) *Block {
 	var blockHeight int
 	var pvHash string
+	var transactions []Transaction
 
 	if len(bc.Chain) == 0 {
 		blockHeight = 0
@@ -57,9 +58,11 @@ func NewBlock(tx Transaction) *Block {
 		pvHash = bc.Chain[len(bc.Chain)-1].Hash
 	}
 
+	transactions = append(transactions, GenerateCoinbaseTx(), tx)
+
 	b := Block{
 		Height:     blockHeight,
-		TxData:     tx,
+		TxData:     transactions,
 		Timestamps: time.Now().String(),
 		PrevHash:   pvHash,
 	}
@@ -171,7 +174,7 @@ func (b *Block) validateHash() bool {
 }
 
 func (b *Block) calculateHash() string {
-	data := strconv.Itoa(b.Height) + b.TxData.String() + b.Timestamps + strconv.Itoa(b.Nonce) + b.PrevHash
+	data := strconv.Itoa(b.Height) + TransactionsToString(b.TxData) + b.Timestamps + strconv.Itoa(b.Nonce) + b.PrevHash
 
 	hash := sha256.Sum256([]byte(data))
 
