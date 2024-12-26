@@ -184,8 +184,11 @@ func blockReader(bSub *pubsub.Subscription, bReceiver chan<- *Block) {
 		spew.Dump(bc.Chain)
 		fmt.Println(Reset)
 
-		mempool.RemoveTransaction(b.TxData.TxID)
-
+		for _, tx := range b.TxData {
+			if !tx.IsCoinbase {
+				mempool.RemoveTransaction(tx.TxID)
+			}
+		}
 	}
 }
 

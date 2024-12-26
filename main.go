@@ -17,7 +17,7 @@ func main() {
 	err := blockchain.StartNode(*port, *seed, *target)
 
 	if err != nil {
-		logger.Errorf("Unable to start node at %d: %s", port, err)
+		logger.Errorf("Unable to start node at port %d: %s", *port, err)
 	}
 
 }
