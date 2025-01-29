@@ -1,15 +1,20 @@
 package blockchain
 
+import (
+	"encoding/hex"
+	"errors"
+)
+
 type Input struct {
-	PrevTxID    string
-	OutputIndex int
-	Value       int
+	PrevTxID    string `json:"prev_tx_id"`
+	OutputIndex int    `json:"output_index"`
+	ScriptSig   string `json:"script_sig"`
+	Value       int    `json:"value"`
 }
 
 type Output struct {
-	OutputIndex int
-	Value       int
-	Address     string
+	Value        int
+	ScriptPubKey string
 }
 
 type UTXOSet struct {
@@ -20,14 +25,14 @@ var us = &UTXOSet{
 	UTXOs: make(map[string]map[int]Output),
 }
 
-func (us *UTXOSet) AddUTXO(txID string, outputIndex int, amount int, address string) {
+func (us *UTXOSet) addUTXO(txID string, outputIndex int, amount int, scriptPubKey string) {
 	if _, exists := us.UTXOs[txID]; !exists {
 		us.UTXOs[txID] = make(map[int]Output)
 	}
-	us.UTXOs[txID][outputIndex] = Output{OutputIndex: outputIndex, Value: amount, Address: address}
+	us.UTXOs[txID][outputIndex] = Output{Value: amount, ScriptPubKey: scriptPubKey}
 }
 
-func (us *UTXOSet) Remove(txID string, outputIndex int, address string) {
+func (us *UTXOSet) removeUTXO(txID string, outputIndex int) {
 	if outputs, exists := us.UTXOs[txID]; exists {
 		delete(outputs, outputIndex)
 		if len(outputs) == 0 {
@@ -36,44 +41,135 @@ func (us *UTXOSet) Remove(txID string, outputIndex int, address string) {
 	}
 }
 
-func (us *UTXOSet) GetTotalUTXOsByAddress(address string) int {
-	var totalUTXOs int
-	for _, transactions := range us.UTXOs {
-		for _, utxo := range transactions {
-			if utxo.Address == address {
-				totalUTXOs += utxo.Value
+func (us *UTXOSet) update(txs []Transaction) {
+	for _, tx := range txs {
+		for _, input := range tx.Inputs {
+			us.removeUTXO(tx.TxID, input.OutputIndex)
+		}
+		for index, output := range tx.Outputs {
+			us.addUTXO(tx.TxID, index, output.Value, output.ScriptPubKey)
+		}
+	}
+}
+
+func (us *UTXOSet) getUTXO(txID string, outIndex int) (Output, error) {
+	var output Output
+	for transactionID, transactions := range us.UTXOs {
+		if transactionID == txID {
+			for outputIndex, output := range transactions {
+				if outputIndex == outIndex {
+					return output, nil
+				}
 			}
 		}
 	}
-	return totalUTXOs
+	return output, errors.New("No output found with specified transaction io and output index.")
 }
 
-func GetUTXOsByAddress(address string) []Output {
-	var utxos []Output
+func (us *UTXOSet) GetTotalBalByAddress(address string) int {
+	var totalBal int
 	for _, transactions := range us.UTXOs {
 		for _, utxo := range transactions {
-			if utxo.Address == address {
-				utxos = append(utxos, utxo)
+			pubKeyHash, err := hex.DecodeString(utxo.ScriptPubKey)
+			if err != nil {
+				return 0
+			}
+
+			utxoAddr := PubKeyHashToAddress(pubKeyHash)
+			if utxoAddr == address {
+				totalBal += utxo.Value
 			}
 		}
 	}
-	return utxos
+	return totalBal
 }
 
-func GetInputsForTxByAddress(address string) []Input {
+func GetAvailableIns(address string) []Input {
 	var inputs []Input
 	for txID, transactions := range us.UTXOs {
 		for outputIndex, utxo := range transactions {
-			if utxo.Address == address {
+			pubKeyHash, err := hex.DecodeString(utxo.ScriptPubKey)
+			if err != nil {
+				logger.Error("Error decoding scriptPubKey", err)
+				return inputs
+			}
+
+			utxoAddr := PubKeyHashToAddress(pubKeyHash)
+			if utxoAddr == address {
 				input := Input{
 					PrevTxID:    txID,
 					OutputIndex: outputIndex,
-					Value:       utxo.Value,
 				}
 				inputs = append(inputs, input)
 			}
 		}
 	}
 	return inputs
+}
 
+// ResolveInputs selects enough inputs to meet the specified amount to be sent.
+// Returns an error if the sum of inputs is insufficient.
+func ResolveInputs(totalIns []Input, amtToBeSent int) ([]Input, error) {
+	var inputs []Input
+	inputAmtSum := 0
+
+	if len(totalIns) == 0 {
+		return nil, errors.New("no UTXOs available to spend")
+	}
+
+	for _, input := range totalIns {
+		if inputAmtSum <= amtToBeSent {
+			inputs = append(inputs, input)
+			inputAmtSum += input.Value
+		} else {
+			break
+		}
+	}
+
+	if inputAmtSum < amtToBeSent {
+		return nil, errors.New("insufficent total UTXOs to cover the amount to be sent")
+	}
+	return inputs, nil
+}
+
+// DeriveOutputs generates transaction outputs based on inputs, amount, recipient, and sender addresses.
+// It creates up to two outputs: one for the recipient and, if needed, another for the sender's remaining balance.
+func DeriveOutputs(inputs []Input, amount int, recipAddr, senderAddr string) []Output {
+	totalInputAmount := 0
+	var outputs []Output
+	for _, inp := range inputs {
+		totalInputAmount += inp.Value
+	}
+
+	senderPubKeyHash, err := AddressToPubKeyHash(senderAddr)
+	if err != nil {
+		logger.Error("Invalid sender address")
+		return outputs
+	}
+	recipAddrPubKeyHash, err := AddressToPubKeyHash(senderAddr)
+	if err != nil {
+		logger.Error("Invalid recipent address")
+		return outputs
+	}
+
+	if totalInputAmount > amount {
+		// we can have two outputs at max in our implementation since in a single transaction one address can send to only one address
+		// thus resulting two outputs at max -> one for the receipent and the other output(if applicable) for the remaining amount for the sender itself
+		output1 := Output{
+			Value:        totalInputAmount - amount,
+			ScriptPubKey: hex.EncodeToString(senderPubKeyHash),
+		}
+		output2 := Output{
+			Value:        amount,
+			ScriptPubKey: hex.EncodeToString(recipAddrPubKeyHash),
+		}
+		outputs = append(outputs, output1, output2)
+	} else if totalInputAmount == amount {
+		output := Output{
+			Value:        amount,
+			ScriptPubKey: recipAddr,
+		}
+		outputs = append(outputs, output)
+	}
+	return outputs
 }

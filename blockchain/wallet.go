@@ -1,18 +1,16 @@
-// This wallet code is specifically coupled with the node itself
 package blockchain
 
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"encoding/hex"
 )
 
-var wall Wallet
+var NodeWallet *Wallet
 
 type Wallet struct {
-	privateKey *ecdsa.PrivateKey
-	PublicKey  string
+	PrivateKey *ecdsa.PrivateKey
+	PublicKey  *ecdsa.PublicKey
 	Address    string
 }
 
@@ -22,16 +20,14 @@ func GenerateWallet() *Wallet {
 		return &Wallet{}
 	}
 
-	publicKey := append(privateKey.X.Bytes(), privateKey.PublicKey.Y.Bytes()...)
-	publicKeyHex := hex.EncodeToString(publicKey)
+	publicKey := &privateKey.PublicKey
 
-	address, err := PublicKeyHexToAddress(publicKeyHex)
-	if err != nil {
-		return &Wallet{}
-	}
+	pubKeyHash := PublicKeyToPubKeyHash(publicKey)
+	address := PubKeyHashToAddress(pubKeyHash)
+
 	return &Wallet{
-		privateKey: privateKey,
-		PublicKey:  publicKeyHex,
+		PrivateKey: privateKey,
+		PublicKey:  publicKey,
 		Address:    address,
 	}
 }

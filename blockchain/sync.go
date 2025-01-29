@@ -76,6 +76,14 @@ func syncBlocksFromPeer(h host.Host, peerID peer.ID) {
 	for _, block := range blocks {
 		if block.isValid() {
 			bc.AddBlock(block)
+			us.update(block.TxData)
+
+			for _, tx := range block.TxData {
+				if !tx.IsCoinbase {
+					mempool.RemoveTransaction(tx.TxID)
+				}
+			}
+
 		}
 	}
 }

@@ -3,7 +3,6 @@ package blockchain
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -21,25 +19,34 @@ import (
 
 var node host.Host
 
-const nodesAddrFile = "nodes.json"
+const (
+	NodesAddrFile    = "nodes.json" // this file will be used by nodes on bootup for peer discovery if no peer address
+	topicBlock       = "block"
+	topicTransaction = "transaction"
+)
 
 type NodeIdentifier struct {
 	PeerID string `json:"peer_id"`
 	Addr   string `json:"address"`
 }
 
-func StartNode(port int, randseed int64, connectAddr string) error {
+func StartNode(ctx context.Context, port int, randseed int64, connectAddr string) error {
 	if port == 0 {
-		return errors.New("Invalid port!")
+		const maxPort = 65535
+		for port = 6969; port <= maxPort; port++ {
+			if CheckPortAvailability("localhost", port) {
+				break
+			}
+		}
 	}
 
 	priv, err := GeneratePrivKeyForNode(randseed)
 	if err != nil {
+		logger.Error(err)
 		return err
 	}
 
-	// associate a wallet with the node
-	wall = *GenerateWallet()
+	NodeWallet = GenerateWallet()
 
 	opts := []libp2p.Option{
 		libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", port)),
@@ -48,27 +55,28 @@ func StartNode(port int, randseed int64, connectAddr string) error {
 
 	node, err = libp2p.New(opts...)
 	if err != nil {
+		logger.Error(err)
 		return err
 	}
 
 	// subscribing
-	nodePS, err := applyPubSub(node)
+	nodePS, err := applyPubSub(ctx, node)
 	if err != nil {
 		logger.Errorf("Error setting up instance for pubsub: %v", err)
 		return err
 	}
 
-	nodePS.RegisterTopicValidator("block", bTopicValidator)
-	nodePS.RegisterTopicValidator("transaction", txTopicValidator)
+	nodePS.RegisterTopicValidator(topicBlock, bTopicValidator)
+	nodePS.RegisterTopicValidator(topicTransaction, txTopicValidator)
 
-	bTopic, err := nodePS.Join("block")
+	bTopic, err := nodePS.Join(topicBlock)
 	if err != nil {
 		logger.Errorf("Error subscribing to topic 'block': %v", err)
 		return err
 	}
 	bSub, _ := bTopic.Subscribe()
 
-	txTopic, err := nodePS.Join("transaction")
+	txTopic, err := nodePS.Join(topicTransaction)
 	if err != nil {
 		logger.Errorf("Error subscribing to topic 'transaction': %s\n", err)
 		return err
@@ -76,46 +84,44 @@ func StartNode(port int, randseed int64, connectAddr string) error {
 	txSub, _ := txTopic.Subscribe()
 
 	blockReceiver := make(chan *Block, 1)
-	go blockReader(bSub, blockReceiver)
-	go txReader(txSub)
+	go blockReader(ctx, bSub, blockReceiver)
+	go txReader(ctx, txSub)
 
 	node.Network().Notify(&MyNotifiee{})
 
 	fullAddr := node.Addrs()[0].String() + "/p2p/" + node.ID().String()
 	logger.Successf("Node started at address: %s\n", fullAddr)
+	connectToPeer(ctx, node, connectAddr)
+	writeNodeAddrToJSONFile(fullAddr, node.ID().String(), NodesAddrFile)
 
-	connectToPeers(node, connectAddr)
-	writeNodeAddrToJSONFile(fullAddr, node.ID().String(), nodesAddrFile)
+	// sync blocks from connected peers on node startup
 	handleSyncRequests(node)
-	go MineBlocks(blockReceiver, bTopic)
+
+	go MineBlocks(ctx, blockReceiver, bTopic)
+	go HandleNodeCommands(ctx, txTopic)
 
 	// Signal handling for proper shutdown
-	done := make(chan struct{})
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGABRT, syscall.SIGTERM)
-
-	go func() {
-		logger.Info("Received signal: ", <-sigs)
-		if err := removeNodeInfoFromJSONFile(node.ID().String(), nodesAddrFile); err != nil {
-			logger.Error("Error removing the peer address from json file:", err)
-		}
-		close(done)
-	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGABRT, syscall.SIGTERM)
 
 	select {
-	case <-done:
+	case quitSig := <-quit:
+		logger.Info("Received signal: ", quitSig)
+		if err := removeNodeInfoFromJSONFile(node.ID().String(), NodesAddrFile); err != nil {
+			logger.Error("Error removing the peer address from json file:", err)
+		}
 		logger.Error("Node shutting down...")
 		node.Close()
 		return nil
 	}
 }
 
-func applyPubSub(h host.Host) (*pubsub.PubSub, error) {
+func applyPubSub(ctx context.Context, h host.Host) (*pubsub.PubSub, error) {
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSigning(true),
 	}
 
-	return pubsub.NewGossipSub(context.Background(), h, psOpts...)
+	return pubsub.NewGossipSub(ctx, h, psOpts...)
 }
 
 func bTopicValidator(ctx context.Context, pid peer.ID, msg *pubsub.Message) bool {
@@ -153,9 +159,9 @@ func txTopicValidator(ctx context.Context, pid peer.ID, msg *pubsub.Message) boo
 	return true
 }
 
-func blockReader(bSub *pubsub.Subscription, bReceiver chan<- *Block) {
+func blockReader(ctx context.Context, bSub *pubsub.Subscription, blockReceiver chan<- *Block) {
 	for {
-		bMsg, err := bSub.Next(context.Background())
+		bMsg, err := bSub.Next(ctx)
 		if err != nil {
 			logger.Error("Error receiving next message: ")
 		}
@@ -163,38 +169,33 @@ func blockReader(bSub *pubsub.Subscription, bReceiver chan<- *Block) {
 		if bMsg.GetFrom() == node.ID() {
 			continue
 		}
-		b := &Block{}
+		block := &Block{}
 
-		json.Unmarshal(bMsg.Data, &b)
-		logger.Infof("Received block with id: %s from: %s\n", b.Hash, bMsg.GetFrom())
-		fmt.Println(Yellow)
-		spew.Dump(b)
-		fmt.Println(Reset)
+		json.Unmarshal(bMsg.Data, &block)
+		logger.Infof("Received block with id: %s from: %s\n", block.Hash, bMsg.GetFrom())
 
-		if !b.isValid() {
+		if !block.isValid() {
 			continue
 		}
 
 		// Signals miner with receiving block
-		bReceiver <- b
+		blockReceiver <- block
 
-		bc.AddBlock(b)
+		us.update(block.TxData)
 
-		fmt.Println(Yellow, "recevied block added")
-		spew.Dump(bc.Chain)
-		fmt.Println(Reset)
-
-		for _, tx := range b.TxData {
+		for _, tx := range block.TxData {
 			if !tx.IsCoinbase {
 				mempool.RemoveTransaction(tx.TxID)
 			}
 		}
+
+		bc.AddBlock(block)
 	}
 }
 
-func txReader(txSub *pubsub.Subscription) {
+func txReader(ctx context.Context, txSub *pubsub.Subscription) {
 	for {
-		txMsg, _ := txSub.Next(context.Background())
+		txMsg, _ := txSub.Next(ctx)
 		if txMsg.GetFrom() == node.ID() {
 			continue
 		}
@@ -206,45 +207,48 @@ func txReader(txSub *pubsub.Subscription) {
 	}
 }
 
-// connectToPeers establishes a connection between the host and a peer node.
-// If `connectAddr` is provided, it directly connects to that address.
-// Otherwise, it reads peer addresses from `nodesAddrFile` and randomly selects one to establish the connection.
-// Returns an error on failure
-func connectToPeers(h host.Host, connectAddr string) {
+// connectToPeer establishes a connection between the host and a peer node with the provided connectAddr
+func connectToPeer(ctx context.Context, h host.Host, connectAddr string) {
 	if connectAddr != "" {
 		fullAddr, _ := multiaddr.NewMultiaddr(connectAddr)
 		peerInfo, _ := peer.AddrInfoFromP2pAddr(fullAddr)
-		err := h.Connect(context.Background(), *peerInfo)
+		err := h.Connect(ctx, *peerInfo)
 		if err != nil {
 			logger.Errorf("Failed to connect to peer %s: %v", connectAddr, err)
 		} else {
 			syncBlocksFromPeer(node, peerInfo.ID)
 		}
-		return
+	} else {
+		peerInfo := GetRandomPeerInfo()
+		if peerInfo != nil {
+			err := h.Connect(context.Background(), *peerInfo)
+			if err != nil {
+				logger.Errorf("Failed to connect to peer %s: %v", connectAddr, err)
+			} else {
+				syncBlocksFromPeer(node, peerInfo.ID)
+			}
+		}
 	}
-	file, err := os.OpenFile(nodesAddrFile, os.O_CREATE|os.O_RDONLY, 0666)
+}
+
+// GetRandomPeerInfo is a helper function for getting peerInfo from a random peer from NodesAddrFile
+func GetRandomPeerInfo() *peer.AddrInfo {
+	file, err := os.OpenFile(NodesAddrFile, os.O_CREATE|os.O_RDONLY, 0666)
 	if err != nil {
 		logger.Error("Error opening json file: ", err)
-		return
+		return nil
 	}
 
 	var n []NodeIdentifier
 	decoder := json.NewDecoder(file)
 	decoder.Decode(&n)
 	if len(n) == 0 {
-		return
+		return nil
 	}
 
 	rng := rand.New(rand.NewSource(int64(time.Now().Nanosecond())))
 	randomPeer := n[rng.Intn(len(n))]
 	fullAddr, _ := multiaddr.NewMultiaddr(randomPeer.Addr)
 	peerInfo, _ := peer.AddrInfoFromP2pAddr(fullAddr)
-	err = h.Connect(context.Background(), *peerInfo)
-	if err != nil {
-		logger.Errorf("Error connecting to %s : %v\n", peerInfo.ID, err)
-	} else {
-		syncBlocksFromPeer(node, peerInfo.ID)
-	}
-
-	return
+	return peerInfo
 }
