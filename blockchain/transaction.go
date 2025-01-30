@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
 type Transaction struct {
@@ -66,12 +64,12 @@ func (tx *Transaction) isValid() bool {
 
 	if !tx.IsCoinbase {
 		for _, input := range tx.Inputs {
-			correspondingOutput, err := utxoSet.getUTXO(input.PrevTxID, input.OutputIndex)
+			utxo, err := utxoSet.GetUTXO(input.PrevTxID, input.OutputIndex)
 			if err != nil {
 				logger.Error("Invalid input, found no corressponding output", err)
 			}
 
-			if err := UnlockUTXO(input, correspondingOutput, txIDBytes); err != nil {
+			if err := UnlockUTXO(input, utxo, txIDBytes); err != nil {
 				return false
 			}
 		}
@@ -85,7 +83,7 @@ func (tx *Transaction) Hash() []byte {
 	txData := tx.TxID + tx.Sender + tx.Recipent + strconv.Itoa(tx.Amount) + tx.Timestamps + strconv.FormatBool(tx.IsCoinbase)
 
 	for _, input := range tx.Inputs {
-		txData += input.PrevTxID + strconv.Itoa(input.OutputIndex) + strconv.Itoa(input.Value)
+		txData += input.PrevTxID + strconv.Itoa(input.OutputIndex)
 	}
 
 	for _, output := range tx.Outputs {
@@ -121,7 +119,6 @@ func GenerateCoinbaseTx() Transaction {
 		Timestamps: time.Now().String(),
 	}
 	coinbaseTx.TxID = hex.EncodeToString(coinbaseTx.Hash())
-	spew.Dump(coinbaseTx)
 	return coinbaseTx
 }
 
@@ -130,7 +127,7 @@ func TransactionsToString(transactions []Transaction) string {
 	for _, t := range transactions {
 		inputsStr := []string{}
 		for _, input := range t.Inputs {
-			inputsStr = append(inputsStr, input.PrevTxID+", "+strconv.Itoa(input.OutputIndex)+", "+strconv.Itoa(input.Value))
+			inputsStr = append(inputsStr, input.PrevTxID+", "+strconv.Itoa(input.OutputIndex)+", ")
 		}
 
 		outputsStr := []string{}

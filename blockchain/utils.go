@@ -70,8 +70,8 @@ func AddressToPubKeyHash(address string) ([]byte, error) {
 	return pubKeyHash, nil
 }
 
-func UnlockUTXO(input Input, output Output, txHash []byte) error {
-	pubKeyHashBytes := output.ScriptPubKey
+func UnlockUTXO(input Input, utxo UTXO, txHash []byte) error {
+	pubKeyHashBytes := utxo.ScriptPubKey
 
 	scriptSigBytes, err := hex.DecodeString(input.ScriptSig)
 	if err != nil {
