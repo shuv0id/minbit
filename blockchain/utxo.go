@@ -21,7 +21,7 @@ type UTXOSet struct {
 	UTXOs map[string]map[int]Output // map of transaction id mapped to output indexes mapped to Output
 }
 
-var us = &UTXOSet{
+var utxoSet = &UTXOSet{
 	UTXOs: make(map[string]map[int]Output),
 }
 
@@ -86,7 +86,7 @@ func (us *UTXOSet) GetTotalBalByAddress(address string) int {
 
 func GetAvailableIns(address string) []Input {
 	var inputs []Input
-	for txID, transactions := range us.UTXOs {
+	for txID, transactions := range utxoSet.UTXOs {
 		for outputIndex, utxo := range transactions {
 			pubKeyHash, err := hex.DecodeString(utxo.ScriptPubKey)
 			if err != nil {

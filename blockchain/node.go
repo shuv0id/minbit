@@ -181,7 +181,7 @@ func blockReader(ctx context.Context, bSub *pubsub.Subscription, blockReceiver c
 		// Signals miner with receiving block
 		blockReceiver <- block
 
-		us.update(block.TxData)
+		utxoSet.update(block.TxData)
 
 		for _, tx := range block.TxData {
 			if !tx.IsCoinbase {

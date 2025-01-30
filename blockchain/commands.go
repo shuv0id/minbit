@@ -43,7 +43,7 @@ func HandleNodeCommands(ctx context.Context, txPublisher *pubsub.Topic) {
 			fmt.Println("Wallet Address:", NodeWallet.Address)
 
 		case command == "showbal":
-			fmt.Println(us.GetTotalBalByAddress(NodeWallet.Address))
+			fmt.Println(utxoSet.GetTotalBalByAddress(NodeWallet.Address))
 
 		case command == "blocks":
 			for _, b := range bc.Chain {

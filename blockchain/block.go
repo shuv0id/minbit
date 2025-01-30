@@ -85,7 +85,7 @@ func MineBlocks(ctx context.Context, bReceiver <-chan *Block, blockPublisher *pu
 					continue
 				}
 
-				us.update(b.TxData)
+				utxoSet.update(b.TxData)
 
 				for _, tx := range b.TxData {
 					if !tx.IsCoinbase {

@@ -60,13 +60,13 @@ func (tx *Transaction) isValid() bool {
 		return false
 	}
 
-	if tx.Amount > us.GetTotalBalByAddress(tx.Sender) {
+	if tx.Amount > utxoSet.GetTotalBalByAddress(tx.Sender) {
 		logger.Info("Balance insufficient to process the transaction")
 	}
 
 	if !tx.IsCoinbase {
 		for _, input := range tx.Inputs {
-			correspondingOutput, err := us.getUTXO(input.PrevTxID, input.OutputIndex)
+			correspondingOutput, err := utxoSet.getUTXO(input.PrevTxID, input.OutputIndex)
 			if err != nil {
 				logger.Error("Invalid input, found no corressponding output", err)
 			}
