@@ -168,7 +168,7 @@ func DeriveOutputs(us UTXOSet, inputs []Input, amount int, recipAddr, senderAddr
 		logger.Error("Invalid sender address")
 		return outputs
 	}
-	recipAddrPubKeyHash, err := AddressToPubKeyHash(senderAddr)
+	recipAddrPubKeyHash, err := AddressToPubKeyHash(recipAddr)
 	if err != nil {
 		logger.Error("Invalid recipent address")
 		return outputs
@@ -189,7 +189,7 @@ func DeriveOutputs(us UTXOSet, inputs []Input, amount int, recipAddr, senderAddr
 	} else if totalInputAmount == amount {
 		output := Output{
 			Value:        amount,
-			ScriptPubKey: recipAddr,
+			ScriptPubKey: hex.EncodeToString(recipAddrPubKeyHash),
 		}
 		outputs = append(outputs, output)
 	}
