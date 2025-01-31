@@ -58,7 +58,7 @@ func (us *UTXOSet) removeUTXO(txID string, outputIndex int) {
 func (us *UTXOSet) update(txs []Transaction) {
 	for _, tx := range txs {
 		for _, input := range tx.Inputs {
-			us.removeUTXO(tx.TxID, input.OutputIndex)
+			us.removeUTXO(input.PrevTxID, input.OutputIndex)
 		}
 		for index, output := range tx.Outputs {
 			us.addUTXO(tx.TxID, index, output.Value, output.ScriptPubKey)
