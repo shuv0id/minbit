@@ -127,6 +127,18 @@ func CheckPortAvailability(host string, port int) bool {
 	return true
 }
 
+func CreateScriptSig(signature, pubKey []byte) []byte {
+	var scriptSig bytes.Buffer
+
+	scriptSig.WriteByte(byte(len(signature)))
+	scriptSig.Write(signature)
+
+	scriptSig.WriteByte(byte(len(pubKey)))
+	scriptSig.Write(pubKey)
+
+	return scriptSig.Bytes()
+}
+
 // splitScriptSig splits the scriptSig byte slice into its consitituent signature bytes and public key bytes
 func splitScriptSig(scriptSig []byte) ([]byte, []byte, error) { // Ensure the scriptSig has enough data to process
 	if len(scriptSig) < 2 {

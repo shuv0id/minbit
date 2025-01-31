@@ -9,7 +9,7 @@ import (
 type Input struct {
 	PrevTxID    string `json:"prev_tx_id"`
 	OutputIndex int    `json:"output_index"`
-	ScriptSig   string `json:"script_sig"`
+	ScriptSig   string `json:"script_sig"` // Note: ScriptSig here is a simplified representation and does not reflect the actual Bitcoin implementation.
 }
 
 // Output represents output in a transaction
@@ -86,6 +86,7 @@ func (us *UTXOSet) GetTotalBalByAddress(address string) int {
 		for _, utxo := range transactions {
 			pubKeyHash, err := hex.DecodeString(utxo.ScriptPubKey)
 			if err != nil {
+				logger.Error("Error getting balance: Cannot decode hex encoded scriptPubKey", err)
 				return 0
 			}
 

@@ -1,15 +1,19 @@
 package blockchain
 
 import (
-	// "context"
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	// "errors"
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/mr-tron/base58/base58"
 )
 
 type Transaction struct {
@@ -43,13 +47,14 @@ func (tx *Transaction) isValid() bool {
 		return false
 	}
 
-	if len(tx.Sender) != 58 {
-		logger.Error("Invalid length of sender address")
+	_, err = base58.Decode(tx.Sender)
+	if err != nil {
+		logger.Error("Invalid Sender Address", err)
 		return false
 	}
-
-	if len(tx.Recipent) != 58 {
-		logger.Error("Invalid length of recipent address")
+	_, err = base58.Decode(tx.Recipent)
+	if err != nil {
+		logger.Error("Invalid Recipent Address", err)
 		return false
 	}
 
@@ -79,8 +84,9 @@ func (tx *Transaction) isValid() bool {
 	return true
 }
 
+// Hash hashes the transaction data leaving the txID and scriptSig of each inputs
 func (tx *Transaction) Hash() []byte {
-	txData := tx.TxID + tx.Sender + tx.Recipent + strconv.Itoa(tx.Amount) + tx.Timestamps + strconv.FormatBool(tx.IsCoinbase)
+	txData := tx.Sender + tx.Recipent + strconv.Itoa(tx.Amount) + tx.Timestamps + strconv.FormatBool(tx.IsCoinbase)
 
 	for _, input := range tx.Inputs {
 		txData += input.PrevTxID + strconv.Itoa(input.OutputIndex)
@@ -154,34 +160,80 @@ func GetUserTxHistory(walletAddress string) []Transaction {
 	return txHistory
 }
 
-// yet to be implemented...
-// func sendTransaction(ctx context.Context, amount int, receipentAddr string, txPublisher *pubsub.Topic) error {
-// 	if amount > us.GetTotalBalByAddress(NodeWallet.Address) {
-// 		logger.Errorf("Not enough balance!")
-// 		return errors.New("Not enough balance!")
-// 	}
-//
-// 	availableInputs := GetAvailableIns(NodeWallet.Address)
-// 	inputs, err := ResolveInputs(availableInputs, amount)
-// 	if err != nil {
-// 		logger.Error("Error resolving inputs:", err)
-// 		return err
-// 	}
-//
-// 	outputs := DeriveOutputs(inputs, amount, receipentAddr, NodeWallet.Address)
-//
-// 	tx := &Transaction{
-// 		Amount:     amount,
-// 		Sender:     NodeWallet.Address,
-// 		Recipent:   receipentAddr,
-// 		Inputs:     inputs,
-// 		Outputs:    outputs,
-// 		Timestamps: time.Now().String(),
-// 		IsCoinbase: false,
-// 	}
-// 	// Fix
-// 	tx.Sign(NodeWallet.PrivateKey)
-// 	mempool.AddTransaction(tx)
-//
-// 	return nil
-// }
+func sendTransaction(ctx context.Context, receipAddr string, amount int, txPublisher *pubsub.Topic) error {
+	_, err := base58.Decode(receipAddr)
+	if err != nil {
+		logger.Errorf("Invalid receipAddr %v", err)
+		return err
+	}
+
+	if receipAddr == NodeWallet.Address {
+		logger.Errorf("Address of sender and recipent cannot be equal")
+		return fmt.Errorf("Address of sender and recipent cannot be equal")
+	}
+
+	if amount > utxoSet.GetTotalBalByAddress(NodeWallet.Address) {
+		logger.Errorf("Not enough balance!")
+		return fmt.Errorf("Not enough balance!")
+	}
+
+	utxos := utxoSet.GetAvailableUTXOS(NodeWallet.Address)
+
+	inputs, err := ResolveInputs(utxos, amount)
+	if err != nil {
+		return err
+	}
+
+	outputs := DeriveOutputs(*utxoSet, inputs, amount, receipAddr, NodeWallet.Address)
+
+	tx := Transaction{
+		Sender:     NodeWallet.Address,
+		Recipent:   receipAddr,
+		Amount:     amount,
+		Inputs:     inputs,
+		Outputs:    outputs,
+		Timestamps: time.Now().String(),
+		IsCoinbase: false,
+	}
+
+	pubKey, err := NodeWallet.PublicKey.ECDH()
+	if err != nil {
+		logger.Error("Error converting ecdsa public key to ecdh public key")
+		return fmt.Errorf("Error converting ecdsa public key to ecdh public key %v", err)
+	}
+
+	pubKeyBytes := pubKey.Bytes()
+
+	txHash := tx.Hash()
+	tx.TxID = hex.EncodeToString(txHash)
+
+	sigBytes, err := tx.Sign(NodeWallet.PrivateKey)
+
+	if err != nil {
+		return err
+	}
+
+	scriptSig := CreateScriptSig(sigBytes, pubKeyBytes)
+
+	for i := range tx.Inputs {
+		tx.Inputs[i].ScriptSig = hex.EncodeToString(scriptSig)
+	}
+
+	mempool.AddTransaction(&tx)
+
+	if txPublisher.String() != topicTransaction {
+		return fmt.Errorf("wrong topic for sending transaction. Expected: %s, got: %s", topicTransaction, txPublisher.String())
+	}
+
+	txBytes, err := json.Marshal(tx)
+	if err != nil {
+		return fmt.Errorf("failed to serialize transaction: %w", err)
+	}
+
+	err = txPublisher.Publish(ctx, txBytes)
+	if err != nil {
+		return fmt.Errorf("failed to publish transaction: %w", err)
+	}
+
+	return nil
+}

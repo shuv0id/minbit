@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"os"
 
 	"github.com/shu8h0-null/minimal-btc/blockchain"
 )
@@ -17,8 +18,7 @@ func main() {
 	logger.Info("Starting node...")
 
 	err := blockchain.StartNode(context.Background(), *port, *seed, *target)
-
 	if err != nil {
-		logger.Errorf("Unable to start node at port %d: %s", *port, err)
+		os.Exit(1)
 	}
 }

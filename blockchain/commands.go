@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
@@ -26,15 +27,21 @@ func HandleNodeCommands(ctx context.Context, txPublisher *pubsub.Topic) {
 		case strings.HasPrefix(command, "sendCoin"):
 			args := strings.Split(command, " ")
 			if len(args) < 3 {
-				fmt.Println("Usage: sendtx <receipent> <amount>")
+				fmt.Println("Usage: sendCoin <receipent> <amount>")
 				continue
 			}
-			// yet to be implemented...
-			// if err != nil {
-			// 	fmt.Println("Error sending transaction:", err)
-			// } else {
-			// 	fmt.Println("Transaction sent successfully!")
-			// }
+
+			amount, err := strconv.Atoi(args[2])
+			if err != nil {
+				fmt.Println("Invalid amount type, should be integer", err)
+			}
+
+			err = sendTransaction(ctx, args[1], amount, txPublisher)
+			if err != nil {
+				fmt.Println("Error sending transaction:", err)
+			} else {
+				fmt.Println("Transaction published successfully!")
+			}
 
 		case command == "shownodeaddr":
 			fmt.Println("Node Address:", node.Addrs()[0].String()+"/p2p/"+node.ID().String())

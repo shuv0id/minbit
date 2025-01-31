@@ -32,12 +32,11 @@ type NodeIdentifier struct {
 
 func StartNode(ctx context.Context, port int, randseed int64, connectAddr string) error {
 	if port == 0 {
-		const maxPort = 65535
-		for port = 6969; port <= maxPort; port++ {
-			if CheckPortAvailability("localhost", port) {
-				break
-			}
-		}
+		logger.Error("Please provide a valid port!")
+		return fmt.Errorf("Please provide a valid port!")
+	} else if !CheckPortAvailability("localhost", port) {
+		logger.Errorf("Port: %d is busy!", port)
+		return fmt.Errorf("Port: %d is busy!", port)
 	}
 
 	priv, err := GeneratePrivKeyForNode(randseed)
