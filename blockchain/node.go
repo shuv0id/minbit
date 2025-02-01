@@ -96,6 +96,10 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 	// sync blocks from connected peers on node startup
 	handleSyncRequests(node)
 
+	// wallet req handlers
+	utxoRequestHandler(node)
+	txReqHandler(node, txTopic)
+
 	go MineBlocks(ctx, blockReceiver, bTopic)
 	go HandleNodeCommands(ctx, txTopic)
 

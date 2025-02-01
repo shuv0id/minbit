@@ -11,7 +11,7 @@ import (
 func main() {
 	logger := blockchain.NewColorLogger()
 	port := flag.Int("p", 0, "Port on which the node will listen")
-	target := flag.String("t", "", "Multiaddr of the peer to connect to (leave empty to start without connecting)")
+	target := flag.String("t", "", "Multiaddr of the peer to connect to (if left empty will connect to a random mutliaddress from nodes.json file)")
 	seed := flag.Int64("s", 0, "Seed for random peer ID")
 	flag.Parse()
 
@@ -19,6 +19,7 @@ func main() {
 
 	err := blockchain.StartNode(context.Background(), *port, *seed, *target)
 	if err != nil {
+		logger.Error("Cannot connect to node!!!")
 		os.Exit(1)
 	}
 }
