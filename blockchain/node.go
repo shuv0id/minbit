@@ -20,15 +20,12 @@ import (
 var node host.Host
 
 const (
-	NodesAddrFile    = "nodes.json" // this file will be used by nodes on bootup for peer discovery if no peer address
+	PeersInfoFile    = "nodes.json" // this file will be used by nodes on bootup for peer discovery
 	topicBlock       = "block"
 	topicTransaction = "transaction"
 )
 
-type NodeIdentifier struct {
-	PeerID string `json:"peer_id"`
-	Addr   string `json:"address"`
-}
+type PeersInfo map[string]string // peers maps a peer ID (string) to its full P2P address (string)
 
 func StartNode(ctx context.Context, port int, randseed int64, connectAddr string) error {
 	if port == 0 {
@@ -90,8 +87,9 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 
 	fullAddr := node.Addrs()[0].String() + "/p2p/" + node.ID().String()
 	logger.Successf("Node started at address: %s\n", fullAddr)
+
 	connectToPeer(ctx, node, connectAddr)
-	writeNodeAddrToJSONFile(fullAddr, node.ID().String(), NodesAddrFile)
+	writePeerInfoToJSONFile(fullAddr, node.ID().String(), PeersInfoFile)
 
 	// sync blocks from connected peers on node startup
 	handleSyncRequests(node)
@@ -110,7 +108,7 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 	select {
 	case quitSig := <-quit:
 		logger.Info("Received signal: ", quitSig)
-		if err := removeNodeInfoFromJSONFile(node.ID().String(), NodesAddrFile); err != nil {
+		if err := removePeerInfoFromJSONFile(node.ID().String(), PeersInfoFile); err != nil {
 			logger.Error("Error removing the peer address from json file:", err)
 		}
 		logger.Error("Node shutting down...")
@@ -210,7 +208,8 @@ func txReader(ctx context.Context, txSub *pubsub.Subscription) {
 	}
 }
 
-// connectToPeer establishes a connection between the host and a peer node with the provided connectAddr
+// connectToPeer establishes a connection between the host and a peer node with the provided connectAddr(if provided)
+// else connects to a random peer from `PeersInfoFile`
 func connectToPeer(ctx context.Context, h host.Host, connectAddr string) {
 	if connectAddr != "" {
 		fullAddr, _ := multiaddr.NewMultiaddr(connectAddr)
@@ -234,24 +233,44 @@ func connectToPeer(ctx context.Context, h host.Host, connectAddr string) {
 	}
 }
 
-// GetRandomPeerInfo is a helper function for getting peerInfo from a random peer from NodesAddrFile
+// GetRandomPeerInfo is a helper function for getting peerInfo from a random peer from NodeList
 func GetRandomPeerInfo() *peer.AddrInfo {
-	file, err := os.OpenFile(NodesAddrFile, os.O_CREATE|os.O_RDONLY, 0666)
-	if err != nil {
-		logger.Error("Error opening json file: ", err)
+	peers := ReadPeersInfo()
+	if peers == nil {
 		return nil
 	}
 
-	var n []NodeIdentifier
-	decoder := json.NewDecoder(file)
-	decoder.Decode(&n)
-	if len(n) == 0 {
-		return nil
+	fullAddrs := make([]string, 0, len(peers))
+	for _, addr := range peers {
+		fullAddrs = append(fullAddrs, addr)
 	}
-
 	rng := rand.New(rand.NewSource(int64(time.Now().Nanosecond())))
-	randomPeer := n[rng.Intn(len(n))]
-	fullAddr, _ := multiaddr.NewMultiaddr(randomPeer.Addr)
+	randomPeerAddr := fullAddrs[rng.Intn(len(fullAddrs))]
+	fullAddr, _ := multiaddr.NewMultiaddr(randomPeerAddr)
 	peerInfo, _ := peer.AddrInfoFromP2pAddr(fullAddr)
 	return peerInfo
+}
+
+// ReadPeersInfo reads nodes from `PeersInfoFile` (creating the file if it doesn't exist) and returns PeersInfo
+func ReadPeersInfo() PeersInfo {
+	var peers PeersInfo
+	file, err := os.OpenFile(PeersInfoFile, os.O_CREATE|os.O_RDONLY, 0666)
+	if err != nil {
+		logger.Errorf("Failed to open file %s: %v\n", PeersInfoFile, err)
+		return nil
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&peers)
+	if err != nil {
+		logger.Warn("Failed to decode json: ", err)
+		return nil
+	}
+
+	if len(peers) == 0 {
+		logger.Warn("No peerInfo found in the file")
+		return nil
+	}
+	return peers
 }

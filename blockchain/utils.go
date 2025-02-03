@@ -154,33 +154,33 @@ func splitScriptSig(scriptSig []byte) ([]byte, []byte, error) { // Ensure the sc
 	return sigBytes, pubKeyBytes, nil
 }
 
-func writeNodeAddrToJSONFile(addr string, peerID string, filename string) error {
+func writePeerInfoToJSONFile(addr string, peerID string, filename string) error {
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		logger.Errorf("Failed to open file %s: %v\n", filename, err)
 		return err
 	}
+	defer file.Close()
 
-	nodeInfo := NodeIdentifier{
-		PeerID: peerID,
-		Addr:   addr,
-	}
-
-	var nodes []NodeIdentifier
+	var peers PeersInfo
 	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&nodes)
-	if err != nil && err.Error() != "EOF" {
-		logger.Errorf("Failed to decode json: %v\n", err)
-		return err
+	err = decoder.Decode(&peers)
+	if err != nil {
+		if err == io.EOF {
+			peers = make(PeersInfo)
+		} else {
+			logger.Errorf("Failed to decode json: %v\n", err)
+			return err
+		}
 	}
 
-	nodes = append(nodes, nodeInfo)
+	peers[peerID] = addr
 	file.Truncate(0)
 	file.Seek(0, 0)
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", " ")
-	err = encoder.Encode(nodes)
+	err = encoder.Encode(peers)
 	if err != nil {
 		logger.Errorf("Failed to write to file: %v\n", err)
 		return err
@@ -189,37 +189,41 @@ func writeNodeAddrToJSONFile(addr string, peerID string, filename string) error 
 	return nil
 }
 
-func removeNodeInfoFromJSONFile(peerID string, filename string) error {
+func removePeerInfoFromJSONFile(peerID string, filename string) error {
 	file, err := os.OpenFile(filename, os.O_RDWR, 0666)
 	if err != nil {
 		logger.Errorf("Failed to open file %s: %v\n", filename, err)
 		return err
 	}
+	defer file.Close()
 
-	var nodes []NodeIdentifier
-	var nodeFound bool
+	var peers PeersInfo
 	decoder := json.NewDecoder(file)
-	decoder.Decode(&nodes)
-
-	for i, n := range nodes {
-		if n.PeerID == peerID {
-			nodes = append(nodes[:i], nodes[i+1:]...)
-			nodeFound = true
-			break
+	err = decoder.Decode(&peers)
+	if err != nil {
+		if err == io.EOF {
+			peers = make(PeersInfo)
+		} else {
+			logger.Errorf("Failed to decode JSON: %v\n", err)
+			return err
 		}
 	}
 
-	if nodeFound {
-		file.Truncate(0)
-		file.Seek(0, 0)
+	if _, exists := peers[peerID]; !exists {
+		return nil
+	}
 
-		encoder := json.NewEncoder(file)
-		encoder.SetIndent("", " ")
-		err = encoder.Encode(nodes)
-		if err != nil {
-			logger.Errorf("Failed to write to file: %v\n", err)
-			return err
-		}
+	file.Truncate(0)
+	file.Seek(0, 0)
+
+	delete(peers, peerID)
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", " ")
+	err = encoder.Encode(peers)
+	if err != nil {
+		logger.Errorf("Failed to write to file: %v\n", err)
+		return err
 	}
 
 	return nil
