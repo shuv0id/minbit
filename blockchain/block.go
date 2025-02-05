@@ -30,8 +30,6 @@ type Blockchain struct {
 
 var bc Blockchain
 
-var forks []Blockchain
-
 func NewBlock() *Block {
 	var blockHeight int
 	var pvHash string
@@ -153,13 +151,6 @@ func (b *Block) isValid() bool {
 	}
 
 	return true
-}
-
-func (b *Block) isNewFork() bool {
-	if b.Height == bc.Chain[len(bc.Chain)-1].Height {
-		return true
-	}
-	return false
 }
 
 func (b *Block) validateHash() bool {

@@ -20,9 +20,9 @@ import (
 var node host.Host
 
 const (
-	PeersInfoFile    = "nodes.json" // this file will be used by nodes on bootup for peer discovery
-	topicBlock       = "block"
-	topicTransaction = "transaction"
+	PeersInfoFile = "peers.json" // this file will be used by nodes on bootup for peer discovery
+	topicBlock    = "block"
+	topicTx       = "transaction"
 )
 
 type PeersInfo map[string]string // peers maps a peer ID (string) to its full P2P address (string)
@@ -63,7 +63,7 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 	}
 
 	nodePS.RegisterTopicValidator(topicBlock, bTopicValidator)
-	nodePS.RegisterTopicValidator(topicTransaction, txTopicValidator)
+	nodePS.RegisterTopicValidator(topicTx, txTopicValidator)
 
 	bTopic, err := nodePS.Join(topicBlock)
 	if err != nil {
@@ -72,14 +72,14 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 	}
 	bSub, _ := bTopic.Subscribe()
 
-	txTopic, err := nodePS.Join(topicTransaction)
+	txTopic, err := nodePS.Join(topicTx)
 	if err != nil {
 		logger.Errorf("Error subscribing to topic 'transaction': %s\n", err)
 		return err
 	}
 	txSub, _ := txTopic.Subscribe()
 
-	blockReceiver := make(chan *Block, 1)
+	blockReceiver := make(chan *Block)
 	go blockReader(ctx, bSub, blockReceiver)
 	go txReader(ctx, txSub)
 
@@ -179,9 +179,6 @@ func blockReader(ctx context.Context, bSub *pubsub.Subscription, blockReceiver c
 			continue
 		}
 
-		// Signals miner with receiving block
-		blockReceiver <- block
-
 		utxoSet.update(block.TxData)
 
 		for _, tx := range block.TxData {
@@ -191,6 +188,9 @@ func blockReader(ctx context.Context, bSub *pubsub.Subscription, blockReceiver c
 		}
 
 		bc.AddBlock(block)
+
+		// Signals miner with receiving block
+		blockReceiver <- block
 	}
 }
 
@@ -235,8 +235,9 @@ func connectToPeer(ctx context.Context, h host.Host, connectAddr string) {
 
 // GetRandomPeerInfo is a helper function for getting peerInfo from a random peer from NodeList
 func GetRandomPeerInfo() *peer.AddrInfo {
-	peers := ReadPeersInfo()
-	if peers == nil {
+	peers, err := ReadPeersInfo()
+	if err != nil {
+		logger.Error(err)
 		return nil
 	}
 
@@ -251,26 +252,24 @@ func GetRandomPeerInfo() *peer.AddrInfo {
 	return peerInfo
 }
 
-// ReadPeersInfo reads nodes from `PeersInfoFile` (creating the file if it doesn't exist) and returns PeersInfo
-func ReadPeersInfo() PeersInfo {
+// ReadPeersInfo reads nodes from `PeersInfoFile` (creating the file if it doesn't exist), returns PeersInfo or an error.
+func ReadPeersInfo() (PeersInfo, error) {
 	var peers PeersInfo
 	file, err := os.OpenFile(PeersInfoFile, os.O_CREATE|os.O_RDONLY, 0666)
 	if err != nil {
-		logger.Errorf("Failed to open file %s: %v\n", PeersInfoFile, err)
-		return nil
+		return nil, fmt.Errorf("Failed to open file %s: %v\n", PeersInfoFile, err)
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&peers)
 	if err != nil {
-		logger.Warn("Failed to decode json: ", err)
-		return nil
+		return nil, fmt.Errorf("Failed to decode json: %v", err)
 	}
 
 	if len(peers) == 0 {
-		logger.Warn("No peerInfo found in the file")
-		return nil
+		return nil, fmt.Errorf("No peerInfo found in the file")
 	}
-	return peers
+
+	return peers, nil
 }

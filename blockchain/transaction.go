@@ -33,7 +33,6 @@ func (tx *Transaction) Sign(privateKey *ecdsa.PrivateKey) ([]byte, error) {
 
 	sigBytes, err := ecdsa.SignASN1(rand.Reader, privateKey, hash)
 	if err != nil {
-		logger.Error("Error generating signature: ", err)
 		return nil, err
 	}
 
@@ -210,6 +209,7 @@ func sendTransaction(ctx context.Context, receipAddr string, amount int, txPubli
 	sigBytes, err := tx.Sign(NodeWallet.PrivateKey)
 
 	if err != nil {
+		logger.Error("Error generating signature: ", err)
 		return err
 	}
 
@@ -221,8 +221,8 @@ func sendTransaction(ctx context.Context, receipAddr string, amount int, txPubli
 
 	mempool.AddTransaction(&tx)
 
-	if txPublisher.String() != topicTransaction {
-		return fmt.Errorf("wrong topic for sending transaction. Expected: %s, got: %s", topicTransaction, txPublisher.String())
+	if txPublisher.String() != topicTx {
+		return fmt.Errorf("wrong topic for sending transaction. Expected: %s, got: %s", topicTx, txPublisher.String())
 	}
 
 	txBytes, err := json.Marshal(tx)
