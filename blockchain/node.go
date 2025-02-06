@@ -83,7 +83,7 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 	go blockReader(ctx, bSub, blockReceiver)
 	go txReader(ctx, txSub)
 
-	node.Network().Notify(&MyNotifiee{})
+	node.Network().Notify(conn_notifiee)
 
 	fullAddr := node.Addrs()[0].String() + "/p2p/" + node.ID().String()
 	logger.Successf("Node started at address: %s\n", fullAddr)

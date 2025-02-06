@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/shu8h0-null/minimal-btc/blockchain"
-	"github.com/shu8h0-null/minimal-btc/tui"
 )
 
 const (
@@ -37,21 +36,22 @@ func main() {
 	switch *mode {
 	case availableModes[0]:
 		fmt.Println(Blue, "Starting full node...", Reset)
+
 		err := blockchain.StartNode(context.Background(), *port, *seed, *target)
 		if err != nil {
 			fmt.Println(Red, "Cannot connect to node!!!", Reset)
 			os.Exit(1)
 		}
 	case availableModes[1]:
-		fmt.Println(Blue, "Starting tui wallet...", Reset)
+		fmt.Println(Blue, "Starting wallet interface...", Reset)
 		if *port == 0 {
-			fmt.Println(Red, "Please Specify a valid for the wallet to listen at with '-p' flag", Reset)
-		}
-		err := tui.TWallet()
-		if err != nil {
-			fmt.Println(Red, "Error starting tui wallet", Reset)
+			fmt.Println(Red, "ERROR: Please Specify a valid for the wallet to listen at with '-p' flag", Reset)
+			os.Exit(1)
+		} else if !blockchain.CheckPortAvailability("localhost", *port) {
+			fmt.Println(Red, "ERROR: Port is busy, provide another availaible port", Reset)
 			os.Exit(1)
 		}
+
 	default:
 		fmt.Println(Red, "Please specify a valid mode with '-mode' flag. Use -list-modes to see available modes", Reset)
 		os.Exit(1)

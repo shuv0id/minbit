@@ -24,4 +24,4 @@ go.work.sum
 # env file
 .env
 
-nodes.json
+peers.json
