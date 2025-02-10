@@ -24,41 +24,41 @@ func NewColorLogger() *ColorLogger {
 }
 
 func (c *ColorLogger) Info(v ...interface{}) {
-	c.logger.SetPrefix(Blue + "INFO: " + Reset)
+	c.logger.SetPrefix(Blue + "[INFO]: " + Reset)
 	c.logger.Println(v...)
 }
 
 func (c *ColorLogger) Infof(format string, v ...interface{}) {
-	c.logger.SetPrefix(Blue + "INFO: " + Reset)
+	c.logger.SetPrefix(Blue + "[INFO]: " + Reset)
 	c.logger.Printf(format, v...)
 }
 
 func (c *ColorLogger) Warn(v ...interface{}) {
-	c.logger.SetPrefix(Yellow + "WARN: " + Reset)
+	c.logger.SetPrefix(Yellow + "[WARN]: " + Reset)
 	c.logger.Println(v...)
 }
 
 func (c *ColorLogger) Warnf(format string, v ...interface{}) {
-	c.logger.SetPrefix(Yellow + "WARN: " + Reset)
+	c.logger.SetPrefix(Yellow + "[WARN]: " + Reset)
 	c.logger.Printf(format, v...)
 }
 
 func (c *ColorLogger) Error(v ...interface{}) {
-	c.logger.SetPrefix(Red + "ERROR: " + Reset)
+	c.logger.SetPrefix(Red + "[ERROR]: " + Reset)
 	c.logger.Println(v...)
 }
 
 func (c *ColorLogger) Errorf(format string, v ...interface{}) {
-	c.logger.SetPrefix(Red + "ERROR: " + Reset)
+	c.logger.SetPrefix(Red + "[ERROR]: " + Reset)
 	c.logger.Printf(format, v...)
 }
 func (c *ColorLogger) Success(v ...interface{}) {
-	c.logger.SetPrefix(Green + "SUCCESS: " + Reset)
+	c.logger.SetPrefix(Green + "[SUCCESS]: " + Reset)
 	c.logger.Println(v...)
 }
 
 func (c *ColorLogger) Successf(format string, v ...interface{}) {
-	c.logger.SetPrefix(Green + "SUCCESS: " + Reset)
+	c.logger.SetPrefix(Green + "[SUCCESS]: " + Reset)
 	c.logger.Printf(format, v...)
 }
 

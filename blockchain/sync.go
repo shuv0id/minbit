@@ -75,8 +75,13 @@ func syncBlocksFromPeer(h host.Host, peerID peer.ID) {
 
 	for _, block := range blocks {
 		if block.isValid() {
-			bc.AddBlock(block)
-			utxoSet.update(block.TxData)
+			err := bc.AddBlock(block)
+			if err != nil {
+				logger.Errorf("Error adding block: %v\n", err)
+			} else {
+				logger.Successf("Block added: %s", block.Hash)
+			}
+			utxoSet.Update()
 
 			for _, tx := range block.TxData {
 				if !tx.IsCoinbase {

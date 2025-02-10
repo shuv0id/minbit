@@ -27,7 +27,7 @@ const (
 
 type PeersInfo map[string]string // peers maps a peer ID (string) to its full P2P address (string)
 
-func StartNode(ctx context.Context, port int, randseed int64, connectAddr string) error {
+func StartNode(ctx context.Context, port int, randseed int64, connectAddr string, isMiner bool) error {
 	if port == 0 {
 		logger.Error("Please provide a valid port!")
 		return fmt.Errorf("Please provide a valid port!")
@@ -79,6 +79,23 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 	}
 	txSub, _ := txTopic.Subscribe()
 
+	// Initialise db and create required buckets in the db
+	db, err := InitDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	bc, err = NewBlockchain(db)
+	if err != nil {
+		logger.Errorf("Error initialising blockchain: %v\n", err)
+	}
+
+	utxoSet, err = NewUTXOSet(db)
+	if err != nil {
+		logger.Errorf("Error initialising utxoSet: %v\n", err)
+	}
+
 	blockReceiver := make(chan *Block)
 	go blockReader(ctx, bSub, blockReceiver)
 	go txReader(ctx, txSub)
@@ -98,8 +115,14 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 	utxoRequestHandler(node)
 	txReqHandler(node, txTopic)
 
-	go MineBlocks(ctx, blockReceiver, bTopic)
-	go HandleNodeCommands(ctx, txTopic)
+	if isMiner {
+		go MineBlocks(ctx, blockReceiver, bTopic)
+		// } else {
+		// 	go func() {
+		// 		for range blockReceiver {
+		// 		}
+		// 	}()
+	}
 
 	// Signal handling for proper shutdown
 	quit := make(chan os.Signal, 1)
@@ -111,8 +134,20 @@ func StartNode(ctx context.Context, port int, randseed int64, connectAddr string
 		if err := removePeerInfoFromJSONFile(node.ID().String(), PeersInfoFile); err != nil {
 			logger.Error("Error removing the peer address from json file:", err)
 		}
-		logger.Error("Node shutting down...")
-		node.Close()
+
+		logger.Info("Cleaning Up...")
+
+		if err := db.Close(); err != nil {
+			logger.Errorf("Failed to close db: %v", err)
+		} else {
+			logger.Info("DB closed gracefully...")
+		}
+
+		if err := node.Close(); err != nil {
+			logger.Errorf("Failed to close node: %v", err)
+		} else {
+			logger.Info("Node exited gracefully...")
+		}
 		return nil
 	}
 }
@@ -160,6 +195,7 @@ func txTopicValidator(ctx context.Context, pid peer.ID, msg *pubsub.Message) boo
 	return true
 }
 
+// BUG the channel cause bugs when not in miner mode
 func blockReader(ctx context.Context, bSub *pubsub.Subscription, blockReceiver chan<- *Block) {
 	for {
 		bMsg, err := bSub.Next(ctx)
@@ -179,17 +215,24 @@ func blockReader(ctx context.Context, bSub *pubsub.Subscription, blockReceiver c
 			continue
 		}
 
-		utxoSet.update(block.TxData)
-
 		for _, tx := range block.TxData {
 			if !tx.IsCoinbase {
 				mempool.RemoveTransaction(tx.TxID)
 			}
 		}
 
-		bc.AddBlock(block)
+		err = bc.AddBlock(block)
+		if err != nil {
+			logger.Errorf("Error adding block: %v\n", err)
+		} else {
+			logger.Successf("Block added: %s", block.Hash)
+		}
 
-		// Signals miner with receiving block
+		if err = utxoSet.Update(); err != nil {
+			logger.Error("Error updating utxoSet")
+		}
+
+		// BUG: should be miner agnostic
 		blockReceiver <- block
 	}
 }
@@ -218,6 +261,7 @@ func connectToPeer(ctx context.Context, h host.Host, connectAddr string) {
 		if err != nil {
 			logger.Errorf("Failed to connect to peer %s: %v", connectAddr, err)
 		} else {
+			logger.Info("Syncing blocks from peer...")
 			syncBlocksFromPeer(node, peerInfo.ID)
 		}
 	} else {

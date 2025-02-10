@@ -183,7 +183,7 @@ func sendTransaction(ctx context.Context, receipAddr string, amount int, txPubli
 		return err
 	}
 
-	outputs := DeriveOutputs(*utxoSet, inputs, amount, receipAddr, NodeWallet.Address)
+	outputs := utxoSet.DeriveOutputs(inputs, amount, receipAddr, NodeWallet.Address)
 
 	tx := Transaction{
 		Sender:     NodeWallet.Address,
@@ -215,8 +215,8 @@ func sendTransaction(ctx context.Context, receipAddr string, amount int, txPubli
 
 	scriptSig := CreateScriptSig(sigBytes, pubKeyBytes)
 
-	for i := range tx.Inputs {
-		tx.Inputs[i].ScriptSig = hex.EncodeToString(scriptSig)
+	for _, input := range tx.Inputs {
+		input.ScriptSig = hex.EncodeToString(scriptSig)
 	}
 
 	mempool.AddTransaction(&tx)

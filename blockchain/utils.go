@@ -228,3 +228,19 @@ func removePeerInfoFromJSONFile(peerID string, filename string) error {
 
 	return nil
 }
+
+// RetryN retries the given function up to n times if it returns an error.
+// Logs retryMsg before each retry (except the last).
+// Returns nil whether it succeeds or not.
+func RetryN(fn func() error, n int, retryMsg string) error {
+	for i := 1; i <= n; i++ {
+		err := fn()
+		if err == nil {
+			break
+		}
+		if i < n {
+			logger.Warnf("%s (attempt %d/%d)", retryMsg, i, n)
+		}
+	}
+	return nil
+}
