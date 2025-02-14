@@ -2,7 +2,7 @@ package blockchain
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/gob"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -10,11 +10,11 @@ import (
 )
 
 type SyncRequest struct {
-	FromHeight int `json:"from_height"`
+	LatestHeight int
 }
 
 type SyncResponse struct {
-	Blocks []*Block `json:"blocks"`
+	Blocks []*Block
 }
 
 const syncProtocolID = "/blockchain/sync/1.0.0"
@@ -23,21 +23,23 @@ func handleSyncRequests(h host.Host) {
 	h.SetStreamHandler(syncProtocolID, func(s network.Stream) {
 		defer s.Close()
 		var syncReq SyncRequest
-		if err := json.NewDecoder(s).Decode(&syncReq); err != nil {
+		if err := gob.NewDecoder(s).Decode(&syncReq); err != nil {
 			logger.Error("Error decoding sync request: ", err)
 			return
 		}
 
 		// Send the requested blocks
 		var resp SyncResponse
-		if syncReq.FromHeight == -1 {
+		if syncReq.LatestHeight == -1 {
 			resp = SyncResponse{Blocks: bc.Chain}
+		} else if syncReq.LatestHeight == bc.Chain[len(bc.Chain)-1].Height {
+			resp = SyncResponse{}
 		} else {
 			resp = SyncResponse{
-				Blocks: bc.Chain[syncReq.FromHeight:],
+				Blocks: bc.Chain[syncReq.LatestHeight+1:],
 			}
 		}
-		if err := json.NewEncoder(s).Encode(resp); err != nil {
+		if err := gob.NewEncoder(s).Encode(resp); err != nil {
 			logger.Error("Error sending sync response:", err)
 		}
 
@@ -51,14 +53,14 @@ func requestBlocks(h host.Host, peerID peer.ID, blockchainHeight int) ([]*Block,
 	}
 	defer s.Close()
 
-	syncReq := SyncRequest{FromHeight: blockchainHeight}
+	syncReq := SyncRequest{LatestHeight: blockchainHeight}
 
-	if err := json.NewEncoder(s).Encode(&syncReq); err != nil {
+	if err := gob.NewEncoder(s).Encode(&syncReq); err != nil {
 		return nil, err
 	}
 
 	var syncResp SyncResponse
-	if err := json.NewDecoder(s).Decode(&syncResp); err != nil {
+	if err := gob.NewDecoder(s).Decode(&syncResp); err != nil {
 		return nil, err
 	}
 
@@ -73,15 +75,21 @@ func syncBlocksFromPeer(h host.Host, peerID peer.ID) {
 		logger.Error("Error syncing blocks: ", err)
 	}
 
+	if len(blocks) == 0 {
+		return
+	}
 	for _, block := range blocks {
 		if block.isValid() {
-			err := bc.AddBlock(block)
-			if err != nil {
+			if err := bc.AddBlock(block); err != nil {
 				logger.Errorf("Error adding block: %v\n", err)
 			} else {
-				logger.Successf("Block added: %s", block.Hash)
+				logger.Successf("Block:[%d]:[%s] added", block.Height, block.Hash)
 			}
-			utxoSet.Update()
+			if err = utxoSet.Update(); err != nil {
+				logger.Errorf("Error adding updating utxoSet: %v\n", err)
+			} else {
+				logger.Success("UTXOSet updated")
+			}
 
 			for _, tx := range block.TxData {
 				if !tx.IsCoinbase {

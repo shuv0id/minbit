@@ -14,8 +14,10 @@ import (
 	mrand "math/rand"
 	"net"
 	"os"
+	"path/filepath"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/mr-tron/base58/base58"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -157,20 +159,17 @@ func splitScriptSig(scriptSig []byte) ([]byte, []byte, error) { // Ensure the sc
 func writePeerInfoToJSONFile(addr string, peerID string, filename string) error {
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
-		logger.Errorf("Failed to open file %s: %v\n", filename, err)
-		return err
+		return fmt.Errorf("Failed to open file %s: %v\n", filename, err)
 	}
 	defer file.Close()
 
 	var peers PeersInfo
-	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&peers)
+	err = json.NewDecoder(file).Decode(&peers)
 	if err != nil {
 		if err == io.EOF {
 			peers = make(PeersInfo)
 		} else {
-			logger.Errorf("Failed to decode json: %v\n", err)
-			return err
+			return fmt.Errorf("Failed to decode json: %v\n", err)
 		}
 	}
 
@@ -182,8 +181,7 @@ func writePeerInfoToJSONFile(addr string, peerID string, filename string) error 
 	encoder.SetIndent("", " ")
 	err = encoder.Encode(peers)
 	if err != nil {
-		logger.Errorf("Failed to write to file: %v\n", err)
-		return err
+		return fmt.Errorf("Failed to write to file: %v\n", err)
 	}
 
 	return nil
@@ -226,6 +224,38 @@ func removePeerInfoFromJSONFile(peerID string, filename string) error {
 		return err
 	}
 
+	return nil
+}
+
+// LoadNodePrivKey loads a private key from ./keys/<id>/node.key.
+func LoadNodePrivKey(id string) (crypto.PrivKey, error) {
+	key, err := os.ReadFile(filepath.Join("./keys", id, "node.key"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read key: %v", err)
+	}
+	priv, err := crypto.UnmarshalPrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal key: %v", err)
+	}
+	return priv, nil
+}
+
+// SaveNodePrivKey saves the private key to ./keys/<peer.ID>/node.key.
+// Creates the directory if needed.
+func SaveNodePrivKey(id peer.ID, priv crypto.PrivKey) error {
+	dir := filepath.Join("./keys", id.String())
+	file := filepath.Join(dir, "node.key")
+
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	privBytes, err := crypto.MarshalPrivateKey(priv)
+	if err != nil {
+		return fmt.Errorf("failed to marshal key: %v", err)
+	}
+	if err := os.WriteFile(file, privBytes, 0600); err != nil {
+		return fmt.Errorf("failed to write key: %v", err)
+	}
 	return nil
 }
 

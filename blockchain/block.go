@@ -205,10 +205,14 @@ func MineBlocks(ctx context.Context, bReceiver <-chan *Block, blockPublisher *pu
 				if err != nil {
 					logger.Errorf("Error adding block: %v\n", err)
 				} else {
-					logger.Successf("Block:[%s] added", block.Hash)
+					logger.Successf("Block:[%d]:[%s] added", block.Height, block.Hash)
 				}
 
-				utxoSet.Update()
+				if err = utxoSet.Update(); err != nil {
+					logger.Errorf("Error adding updating utxoSet: %v\n", err)
+				} else {
+					logger.Success("UTXOSet updated")
+				}
 
 				blockBytes, err := json.Marshal(block)
 				if err != nil {
@@ -278,11 +282,13 @@ func (b *Block) calculateHash() string {
 }
 
 func (bc *Blockchain) GetLatestBlockHeight() int {
-	if len(bc.Chain) == 0 {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	chainLen := len(bc.Chain)
+	if chainLen == 0 {
 		return -1
 	}
-	blockHeight := bc.Chain[len(bc.Chain)-1].Height
-	return blockHeight
+	return bc.Chain[chainLen-1].Height
 }
 
 func serializeBlock(b Block) ([]byte, error) {

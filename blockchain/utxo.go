@@ -107,27 +107,18 @@ func (us *UTXOSet) Update() error {
 	us.mu.Lock()
 	defer us.mu.Unlock()
 
-	bc.mu.Lock()
-	chainCopy := make([]*Block, len(bc.Chain))
-	copy(chainCopy, bc.Chain)
-	bc.mu.Unlock()
-
-	if len(chainCopy) == 0 {
-		return nil
-	}
-
-	latestBlockHeight := chainCopy[len(chainCopy)-1].Height
+	latestBlockHeight := bc.GetLatestBlockHeight()
 	if us.LastAppliedHeight == latestBlockHeight {
 		logger.Info("UTXOSet is up-to-date.")
 		return nil
 	}
 
 	for h := us.LastAppliedHeight + 1; h <= latestBlockHeight; h++ {
-		if h >= len(chainCopy) {
+		if h >= len(bc.Chain) {
 			break
 		}
 
-		blockTxs := chainCopy[h].TxData
+		blockTxs := bc.Chain[h].TxData
 		for _, transaction := range blockTxs {
 			err := RetryN(func() error {
 				err := us.WriteUpdate(transaction)
