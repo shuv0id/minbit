@@ -1,16 +1,14 @@
-module github.com/shu8h0-null/minimal-btc
+module github.com/shu8h0-null/minbit
 
 go 1.23.2
 
 require (
-	github.com/davecgh/go-spew v1.1.1
 	github.com/libp2p/go-libp2p v0.37.0
 	github.com/libp2p/go-libp2p-pubsub v0.12.0
 	github.com/mr-tron/base58 v1.2.0
 	github.com/multiformats/go-multiaddr v0.13.0
 	go.etcd.io/bbolt v1.4.0
 	golang.org/x/crypto v0.33.0
-	golang.org/x/net v0.35.0
 )
 
 require (
@@ -19,6 +17,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/cgroups v1.1.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -105,6 +104,7 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c // indirect
 	golang.org/x/mod v0.21.0 // indirect
+	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect

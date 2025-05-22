@@ -2,6 +2,8 @@ package blockchain
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
@@ -34,42 +36,41 @@ type UTXO struct {
 }
 
 type UTXOSet struct {
-	UTXOs             map[string]map[int]UTXO // map of transaction id mapped to output indexes mapped to UTXO
-	LastAppliedHeight int                     // Height of latest block upto which utxoSet is updated
-	DB                *bolt.DB
-	mu                sync.Mutex
+	UTXOs map[string]map[int]UTXO // map of transaction id mapped to output indexes mapped to UTXO
+	store *Store
+	mu    sync.Mutex
 }
 
-var utxoSet *UTXOSet
-
-func NewUTXOSet(db *bolt.DB) (*UTXOSet, error) {
+func NewUTXOSet(store *Store, utxoBucket string) (*UTXOSet, error) {
 	us := &UTXOSet{
-		UTXOs:             make(map[string]map[int]UTXO),
-		LastAppliedHeight: -1,
-		DB:                db,
+		UTXOs: make(map[string]map[int]UTXO),
+		store: store,
 	}
 	err := us.Load()
+	if err != nil {
+		return nil, err
+	}
 
-	return us, err
+	return us, nil
 }
 
 func (us *UTXOSet) Load() error {
 	us.mu.Lock()
 	defer us.mu.Unlock()
 
-	if us.DB == nil {
+	if us.store == nil {
 		return errors.New("Cannot load utxoSet. UTXOSet is not initialised with a Db")
 	}
 
-	err := us.DB.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(utxoBucket))
+	err := us.store.Db().View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(us.store.UTXOSetBucket()))
 		if b == nil {
 			return errors.New("bucket not found")
 		}
 
 		err := b.ForEach(func(k, v []byte) error {
 			u, err := deserializeUTXO(v)
-			utxoSet.addUTXO(u.TxID, u.OutputIndex, u.Value, u.ScriptPubKey)
+			us.addUTXO(u.TxID, u.OutputIndex, u.Value, u.ScriptPubKey)
 			return err
 		})
 
@@ -80,6 +81,9 @@ func (us *UTXOSet) Load() error {
 }
 
 func (us *UTXOSet) addUTXO(txID string, outputIndex int, value int, scriptPubKey string) {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+
 	if _, exists := us.UTXOs[txID]; !exists {
 		us.UTXOs[txID] = make(map[int]UTXO)
 	}
@@ -92,6 +96,9 @@ func (us *UTXOSet) addUTXO(txID string, outputIndex int, value int, scriptPubKey
 }
 
 func (us *UTXOSet) removeUTXO(txID string, outputIndex int) {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+
 	if utxos, exists := us.UTXOs[txID]; exists {
 		delete(utxos, outputIndex)
 		if len(utxos) == 0 {
@@ -100,46 +107,27 @@ func (us *UTXOSet) removeUTXO(txID string, outputIndex int) {
 	}
 }
 
-// Update checks for new blocks added and applies a transaction update for each block to the UTXO set.
-// It removes spent outputs and adds new ones while ensuring thread safety.
-// Call this method after adding new blocks or at node startup
-func (us *UTXOSet) Update() error {
-	us.mu.Lock()
-	defer us.mu.Unlock()
+// Update applies a batch of transactions to the UTXO set, writing updates to the database with retries.
+// It removes spent UTXOs and adds new ones based on transaction outputs
+func (us *UTXOSet) Update(txs []Transaction) error {
+	for _, transaction := range txs {
+		err := RetryN(func() error {
+			err := us.WriteUpdate(transaction)
+			return err
+		}, 3, fmt.Sprintf("Failed to update utxoSet in db for transaction:[%s]", transaction.TxID))
 
-	latestBlockHeight := bc.GetLatestBlockHeight()
-	if us.LastAppliedHeight == latestBlockHeight {
-		logger.Info("UTXOSet is up-to-date.")
-		return nil
+		if err != nil {
+			return err
+		}
 	}
 
-	for h := us.LastAppliedHeight + 1; h <= latestBlockHeight; h++ {
-		if h >= len(bc.Chain) {
-			break
+	for _, tx := range txs {
+		for _, input := range tx.Inputs {
+			us.removeUTXO(input.PrevTxID, input.OutputIndex)
 		}
-
-		blockTxs := bc.Chain[h].TxData
-		for _, transaction := range blockTxs {
-			err := RetryN(func() error {
-				err := us.WriteUpdate(transaction)
-				return err
-			}, 3, fmt.Sprintf("Failed to update utxoSet in db for transaction:[%s]", transaction.TxID))
-
-			if err != nil {
-				return err
-			}
+		for index, output := range tx.Outputs {
+			us.addUTXO(tx.TxID, index, output.Value, output.ScriptPubKey)
 		}
-
-		for _, tx := range blockTxs {
-			for _, input := range tx.Inputs {
-				us.removeUTXO(input.PrevTxID, input.OutputIndex)
-			}
-			for index, output := range tx.Outputs {
-				us.addUTXO(tx.TxID, index, output.Value, output.ScriptPubKey)
-			}
-		}
-
-		us.LastAppliedHeight = h
 	}
 
 	return nil
@@ -148,8 +136,8 @@ func (us *UTXOSet) Update() error {
 // WriteUpdate updates the UTXO set by deleting spent outputs and adding new ones.
 // Returns an error if any database operation fails.
 func (us *UTXOSet) WriteUpdate(transaction Transaction) error {
-	err := us.DB.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(blockBucket))
+	err := us.store.Db().Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(us.store.UTXOSetBucket()))
 		for _, input := range transaction.Inputs {
 			k := input.PrevTxID + "_" + strconv.Itoa(input.OutputIndex)
 			if err := b.Delete([]byte(k)); err != nil {
@@ -191,7 +179,7 @@ func (us *UTXOSet) GetTotalBalByAddress(address string) int {
 		for _, utxo := range transactions {
 			pubKeyHash, err := hex.DecodeString(utxo.ScriptPubKey)
 			if err != nil {
-				logger.Error("Error getting balance: Cannot decode hex encoded scriptPubKey", err)
+				log.Error("Error getting balance: Cannot decode hex encoded scriptPubKey", err)
 				return 0
 			}
 
@@ -211,7 +199,7 @@ func (us *UTXOSet) GetAvailableUTXOS(address string) []UTXO {
 		for _, output := range transactions {
 			pubKeyHash, err := hex.DecodeString(output.ScriptPubKey)
 			if err != nil {
-				logger.Error("Error decoding scriptPubKey", err)
+				log.Error("Error decoding scriptPubKey", err)
 				return utxos
 			}
 
@@ -262,7 +250,7 @@ func (us *UTXOSet) DeriveOutputs(inputs []Input, amount int, recipAddr, senderAd
 		utxo, err := us.GetUTXO(inp.PrevTxID, inp.OutputIndex)
 
 		if err != nil {
-			logger.Error("Invalid input, found no corressponding output", err)
+			log.Error("Invalid input, found no corressponding output", err)
 			return outputs
 		}
 
@@ -271,12 +259,12 @@ func (us *UTXOSet) DeriveOutputs(inputs []Input, amount int, recipAddr, senderAd
 
 	senderPubKeyHash, err := AddressToPubKeyHash(senderAddr)
 	if err != nil {
-		logger.Error("Invalid sender address")
+		log.Error("Invalid sender address")
 		return outputs
 	}
 	recipAddrPubKeyHash, err := AddressToPubKeyHash(recipAddr)
 	if err != nil {
-		logger.Error("Invalid recipent address")
+		log.Error("Invalid recipent address")
 		return outputs
 	}
 
@@ -300,6 +288,38 @@ func (us *UTXOSet) DeriveOutputs(inputs []Input, amount int, recipAddr, senderAd
 		outputs = append(outputs, output)
 	}
 	return outputs
+}
+
+func UnlockUTXO(input Input, utxo UTXO, txHash []byte) error {
+	pubKeyHashHex := utxo.ScriptPubKey
+
+	scriptSigBytes, err := hex.DecodeString(input.ScriptSig)
+	if err != nil {
+		return fmt.Errorf("Error decoding scriptsig hex of input", err)
+	}
+
+	sigBytes, pubkeyBytes, err := SplitScriptSig(scriptSigBytes)
+	if err != nil {
+		return fmt.Errorf("Invalid scriptsig of input", err)
+	}
+
+	x, y := elliptic.Unmarshal(elliptic.P256(), pubkeyBytes)
+	publicKey := &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
+
+	pubKeyHashBytes, err := PublicKeyToPubKeyHash(publicKey)
+	if err != nil {
+		return err
+	}
+	if pubKeyHashHex != hex.EncodeToString(pubKeyHashBytes) {
+		return errors.New("Cannot spend the corressponding output: Owner mismatched")
+	}
+
+	verified := ecdsa.VerifyASN1(publicKey, txHash, sigBytes)
+	if !verified {
+		return errors.New("Invalid signature")
+	}
+
+	return nil
 }
 
 func serializeUTXO(u UTXO) ([]byte, error) {
