@@ -46,7 +46,7 @@ func AddressToPubKeyHash(address string) ([]byte, error) {
 		return nil, fmt.Errorf("Failed to decode address", err)
 	}
 
-	pubKeyHash := addressBytes[:len(addressBytes)-4] // [1, 2, 3, 4, 5, 6, 7, 8, 9]
+	pubKeyHash := addressBytes[:len(addressBytes)-4]
 	firstHash := sha256.Sum256(pubKeyHash)
 	secondHash := sha256.Sum256(firstHash[:])
 

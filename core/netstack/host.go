@@ -64,7 +64,7 @@ func ConnectToPeer(ctx context.Context, h host.Host, peerAddr string) error {
 // ReadOnlinePeers reads peers from `onlinePeers`
 func ReadOnlinePeers() (OnlinePeers, error) {
 	var peers OnlinePeers
-	file, err := os.Open(onlinePeers)
+	file, err := os.OpenFile(onlinePeers, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		return nil, err
 	}

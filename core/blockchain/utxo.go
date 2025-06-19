@@ -1,17 +1,12 @@
 package blockchain
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"encoding/gob"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
-
-	bolt "go.etcd.io/bbolt"
 )
 
 // Input represents input in a transaction
@@ -35,8 +30,10 @@ type UTXO struct {
 	ScriptPubKey string
 }
 
+type UTXOMap map[string]map[int]UTXO
+
 type UTXOSet struct {
-	UTXOs map[string]map[int]UTXO // map of transaction id mapped to output indexes mapped to UTXO
+	UTXOs UTXOMap // map of transaction id mapped to output indexes mapped to UTXO
 	store *Store
 	mu    sync.Mutex
 }
@@ -54,6 +51,10 @@ func NewUTXOSet(store *Store, utxoBucket string) (*UTXOSet, error) {
 	return us, nil
 }
 
+func (us *UTXOSet) Store() *Store {
+	return us.store
+}
+
 func (us *UTXOSet) Load() error {
 	us.mu.Lock()
 	defer us.mu.Unlock()
@@ -62,20 +63,9 @@ func (us *UTXOSet) Load() error {
 		return errors.New("Cannot load utxoSet. UTXOSet is not initialised with a Db")
 	}
 
-	err := us.store.Db().View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(us.store.UTXOSetBucket()))
-		if b == nil {
-			return errors.New("bucket not found")
-		}
+	umap, err := us.Store().LoadUTXOs()
 
-		err := b.ForEach(func(k, v []byte) error {
-			u, err := deserializeUTXO(v)
-			us.addUTXO(u.TxID, u.OutputIndex, u.Value, u.ScriptPubKey)
-			return err
-		})
-
-		return err
-	})
+	us.UTXOs = umap
 
 	return err
 }
@@ -112,7 +102,7 @@ func (us *UTXOSet) removeUTXO(txID string, outputIndex int) {
 func (us *UTXOSet) Update(txs []Transaction) error {
 	for _, transaction := range txs {
 		err := RetryN(func() error {
-			err := us.WriteUpdate(transaction)
+			err := us.Store().WriteUTXOs(transaction)
 			return err
 		}, 3, fmt.Sprintf("Failed to update utxoSet in db for transaction:[%s]", transaction.TxID))
 
@@ -131,32 +121,6 @@ func (us *UTXOSet) Update(txs []Transaction) error {
 	}
 
 	return nil
-}
-
-// WriteUpdate updates the UTXO set by deleting spent outputs and adding new ones.
-// Returns an error if any database operation fails.
-func (us *UTXOSet) WriteUpdate(transaction Transaction) error {
-	err := us.store.Db().Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(us.store.UTXOSetBucket()))
-		for _, input := range transaction.Inputs {
-			k := input.PrevTxID + "_" + strconv.Itoa(input.OutputIndex)
-			if err := b.Delete([]byte(k)); err != nil {
-				return err
-			}
-		}
-
-		for index, output := range transaction.Outputs {
-			var v bytes.Buffer
-			k := transaction.TxID + "_" + strconv.Itoa(index)
-			gob.NewEncoder(&v).Encode(output)
-			if err := b.Put([]byte(k), v.Bytes()); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	return err
 }
 
 func (us *UTXOSet) GetUTXO(txID string, outIndex int) (UTXO, error) {
@@ -320,16 +284,4 @@ func UnlockUTXO(input Input, utxo UTXO, txHash []byte) error {
 	}
 
 	return nil
-}
-
-func serializeUTXO(u UTXO) ([]byte, error) {
-	var buf bytes.Buffer
-	err := gob.NewEncoder(&buf).Encode(u)
-	return buf.Bytes(), err
-}
-
-func deserializeUTXO(data []byte) (UTXO, error) {
-	var u UTXO
-	err := gob.NewDecoder(bytes.NewReader(data)).Decode(&u)
-	return u, err
 }

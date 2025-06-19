@@ -15,7 +15,7 @@ import (
 var log = logger.NewLogger()
 
 type Block struct {
-	Height     int           `json:"height"`
+	Height     uint64        `json:"height"`
 	TxData     []Transaction `json:"transaction_data"`
 	Timestamps string        `json:"timestamps"`
 	Nonce      int           `json:"nonce"`
@@ -23,8 +23,11 @@ type Block struct {
 	PrevHash   string        `json:"prev_hash"`
 }
 
+type index map[string]uint64
+
 type Blockchain struct {
 	chain      []*Block
+	blockIndex index
 	difficulty int // Mining Difficulty. In real blockchains, this is adjusted dynamically over time.
 	store      *Store
 	mu         sync.Mutex
@@ -36,6 +39,7 @@ func NewBlockchain(store *Store, blockBucket string) (*Blockchain, error) {
 	bc := &Blockchain{
 		difficulty: 2, // hard-coded difficulty; actual blockchain adjust difficulty dynamically over-time
 		store:      store,
+		blockIndex: make(index),
 	}
 
 	err := bc.Load()
@@ -50,6 +54,9 @@ func NewBlock() *Block {
 // Load loads all blocks from the db
 // Returns error if Db for blockchain is not initialised or if the transactions fails
 func (bc *Blockchain) Load() error {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
 	if bc.store == nil {
 		return errors.New("Cannot load blockchain. Db is not initialised with a blockchain")
 	}
@@ -67,12 +74,19 @@ func (bc *Blockchain) Load() error {
 
 	bc.chain = append(bc.chain, blocks...)
 
+	if bc.blockIndex == nil {
+		return errors.New("Cannot update blockchain index. blockchain index is nil")
+	}
+
+	for _, b := range blocks {
+		bc.blockIndex[b.Hash] = b.Height
+	}
+
 	return err
 }
 
 // AddBlock add the new block to the blockchain
 func (bc *Blockchain) AddBlock(block *Block) error {
-
 	err := RetryN(func() error {
 		err := bc.Store().WriteBlock(block)
 		return err
@@ -83,6 +97,7 @@ func (bc *Blockchain) AddBlock(block *Block) error {
 		bc.mu.Lock()
 		defer bc.mu.Unlock()
 		bc.chain = append(bc.chain, block)
+		bc.blockIndex[block.Hash] = block.Height
 	}
 
 	return err
@@ -92,7 +107,7 @@ func (bc *Blockchain) NewBlock(txs []Transaction) *Block {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
-	var blockHeight int
+	var blockHeight uint64
 	var pvHash string
 
 	if len(bc.chain) == 0 {
@@ -120,6 +135,10 @@ func (bc *Blockchain) Chain() []*Block {
 	return bc.chain
 }
 
+func (bc *Blockchain) Index() index {
+	return bc.blockIndex
+}
+
 func (bc *Blockchain) Difficulty() int {
 	return bc.difficulty
 }
@@ -131,7 +150,7 @@ func (bc *Blockchain) GetBlockchainHeight() int {
 	if chainLen == 0 {
 		return -1
 	}
-	return bc.chain[chainLen-1].Height
+	return int(bc.chain[chainLen-1].Height)
 }
 func (bc *Blockchain) IsValid(b *Block) bool {
 	bc.mu.Lock()
@@ -164,7 +183,7 @@ func (b *Block) validateHash() bool {
 }
 
 func (b *Block) calculateHash() string {
-	data := strconv.Itoa(b.Height) + TransactionsToString(b.TxData) + b.Timestamps + strconv.Itoa(b.Nonce) + b.PrevHash
+	data := strconv.FormatUint(b.Height, 10) + TransactionsToString(b.TxData) + b.Timestamps + strconv.Itoa(b.Nonce) + b.PrevHash
 
 	hash := sha256.Sum256([]byte(data))
 

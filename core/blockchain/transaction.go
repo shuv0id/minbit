@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/mr-tron/base58/base58"
 )
@@ -95,33 +94,6 @@ func (tx *Transaction) Hash() []byte {
 	hash := sha256.Sum256([]byte(txData))
 
 	return hash[:]
-}
-
-func GenerateCoinbaseTx(wallet *Wallet) Transaction {
-	coinbaseReward := 6 // hardcoded block reward amount value; block reward halving not implemented
-	var outputs []Output
-
-	WalletPubKeyHash, err := AddressToPubKeyHash(wallet.Address)
-	if err != nil {
-		log.Error("Invalid Wallet address")
-		return Transaction{}
-	}
-
-	rewardOutput := Output{
-		Value:        coinbaseReward,
-		ScriptPubKey: hex.EncodeToString(WalletPubKeyHash),
-	}
-
-	outputs = append(outputs, rewardOutput)
-	coinbaseTx := Transaction{
-		Amount:     coinbaseReward,
-		Recipent:   wallet.Address,
-		IsCoinbase: true,
-		Outputs:    outputs,
-		Timestamps: time.Now().String(),
-	}
-	coinbaseTx.TxID = hex.EncodeToString(coinbaseTx.Hash())
-	return coinbaseTx
 }
 
 func TransactionsToString(transactions []Transaction) string {
